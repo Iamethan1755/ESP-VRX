@@ -1,0 +1,219 @@
+# C5VRX Wi-Fi bridge
+
+An analog 5.8 GHz FPV receiver on an ESP32-C5 whose picture is also streamed
+over Wi-Fi to a phone browser:
+
+```
+VTX ))) XIAO ESP32-C5 (C5VRX-5, unmodified) --6-bit video bus D4..D9--+--> resistor DAC --> goggles (optional)
+                                                                      |
+                                                                      +--> XIAO ESP32-S3 camera port
+                                                                           --> sync lock --> 320x240 gray
+                                                                           --> JPEG --> Wi-Fi AP --> phone
+```
+
+> This project incorporates the C5VRX-5 receiver firmware (as the unmodified
+> `receiver/` submodule, release `c5vrx5-v5.0.109`) and builds on its documented
+> video DAC output from [C5VRX](https://github.com/Twotoz/C5VRX) by Twotoz and
+> the C5VRX contributors. Visit the
+> [official C5VRX website](https://twotoz.github.io/C5VRX/) for the original
+> project and its Discord invite. See the source and license notices for the
+> applicable terms; this derivative is not an official C5VRX release.
+
+## Layout
+
+```
+receiver/   C5VRX (git submodule, pinned): firmware for the XIAO ESP32-C5
+bridge/     ESP-IDF project for the XIAO ESP32-S3 (capture, decoder, JPEG, Wi-Fi)
+  main/video.c        composite decoder: line PLL, vertical sync, levels, 320 px lines
+  main/testpattern.c  synthetic interlaced NTSC/PAL source (bars, ramp, moving box)
+  main/capture.c      S3 camera port + DMA ring, loopback self-test
+  main/stream.c       Wi-Fi access point, web page, MJPEG stream
+  main/console.c      USB console keys
+  main/web/index.html the phone page
+  test/               host test of the decoder (runs on the PC, no hardware)
+tools/      build.ps1 (build/flash/monitor), bridge_tool.py (status, captures, self-test)
+```
+
+## Wiring (7 wires)
+
+| XIAO ESP32-C5 | video bit | XIAO ESP32-S3 |
+| --- | --- | --- |
+| D4 (GPIO23) | 0 (LSB) | D0 (GPIO1) |
+| D5 (GPIO24) | 1 | D1 (GPIO2) |
+| D6 (GPIO11) | 2 | D2 (GPIO3) |
+| D7 (GPIO12) | 3 | D3 (GPIO4) |
+| D8 (GPIO8) | 4 | D4 (GPIO5) |
+| D9 (GPIO9) | 5 (MSB) | D5 (GPIO6) |
+| GND | ground | GND |
+
+- **Never connect C5 D0..D3 or D10.** C5VRX drives them with the raw radio
+  data of its internal IQ loopback.
+- **Leave the S3's GPIO42 pad (MTMS, back side) unconnected.** It carries
+  the camera-port sample clock out and back in.
+- Keep the wires under ~5 cm; they switch at up to 40 MHz. More than one
+  ground wire helps.
+- On the bench, power each board from its own USB-C cable and share only
+  ground. Do not tie the two 5V pins while both are on USB (the S3's 5V
+  pin is an output).
+- The optional C5VRX resistor DAC (8.2k/3.9k/2k/1k/470R/240R + 200R, see
+  [their README](https://github.com/Twotoz/C5VRX#wiring-the-resistor-dac))
+  can stay on the same pins for goggles; the S3 inputs do not load it.
+- Keep the S3's 2.4 GHz antenna away from the C5's 5.8 GHz antenna.
+
+## Toolchain (already set up on this PC)
+
+- ESP-IDF **6.0.2** at `C:\esp\v6.0.2\esp-idf`, tools in `%USERPROFILE%\.espressif`.
+  C5VRX needs exactly this version: its build checks the C5 `libphy.a` hash
+  (`dbf33c41...`, verified) and disables filter/DC correction otherwise.
+- A project venv `.venv` with pyserial, numpy, matplotlib and ziglang (a C
+  compiler for the host test).
+- The project lives at `C:\dev\c5vrx-wifi` because ESP-IDF does not accept
+  spaces or apostrophes in paths.
+
+On a new PC: clone ESP-IDF v6.0.2 with submodules, run
+`install.ps1 esp32c5,esp32s3`, clone this repo with `--recursive`, create the
+venv with `pip install pyserial numpy matplotlib ziglang`.
+
+## Build, flash, monitor
+
+Windows blocks `.ps1` scripts by default; run them through a one-off bypass
+(changes no system setting):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\build.ps1 bridge -Port COM8 -Flash
+```
+
+Inside a PowerShell window that already allows scripts the short form works:
+
+```powershell
+.\tools\build.ps1                                   # both firmwares
+.\tools\build.ps1 bridge -Port COM7 -Flash -Monitor # S3; Ctrl+] leaves the monitor
+.\tools\build.ps1 receiver -Port COM8 -Flash        # C5
+.\tools\build.ps1 bridge -Menuconfig                # Wi-Fi name/password, pins, fps, quality
+.\.venv\Scripts\python bridge\test\run_host_tests.py  # decoder test on the PC
+```
+
+`.\.venv\Scripts\python tools\bridge_tool.py ports` lists the serial ports
+(both XIAOs show up as Espressif `303a:1001`).
+
+The C5 can also be flashed with the official prebuilt firmware from the
+[web flasher](https://twotoz.github.io/C5VRX/) (tab C5VRX-5); `build.ps1
+receiver -Flash` flashes this repo's own build of the same pinned release.
+
+## S3 alone (done 2026-10-17 on this board, COM8)
+
+1. Plug in the XIAO ESP32-S3 (with its antenna), then
+   `.\tools\build.ps1 bridge -Port COMx -Flash -Monitor`.
+2. Self-test of the camera port, **with nothing connected to D0..D5**:
+   press `L` then `y` in the monitor (or `bridge_tool.py selftest`). It drives
+   the six pins from the S3 itself and checks every bit and the sample rate.
+   Result on this board:
+   `SELFTEST 2a:ok 15:ok 01:ok 02:ok 04:ok 08:ok 10:ok 20:ok 3f:ok 00:ok rate=10.00MS/s(want 10) PASS`.
+3. Test patterns through the real decoder and JPEG encoder (console `t`):
+   NTSC locked, 262/263 lines per field, 30.0 fps, ~2.9 KB per frame,
+   0 overruns, decoder load 38 %; PAL locked, 312 lines, 25.0 fps.
+4. On the phone, join Wi-Fi **C5VRX-Bridge** (password `c5vrxwifi`), open
+   `http://192.168.4.1/` and tap **Source** until it says *Test pattern NTSC*:
+   bars, a ramp and a box moving left/right. That proves Wi-Fi and the page
+   end to end (`s` on the console then shows `stations=1 clients=1`).
+   Confirmed 2026-10-17.
+
+**Fit the S3's antenna.** The XIAO ESP32-S3 ships its 2.4 GHz antenna loose
+in the bag; without it on the U.FL connector an iPhone did not see the
+network at all, and a nearby PC joined at −77..−85 dBm with dropped page
+loads and repeated reconnects. On iPhone, iOS shows "No Internet Connection"
+under the network name; that is expected, Safari still opens
+`http://192.168.4.1`. The console logs every join, leave and page request
+(`WIFI ...`, `HTTP ...`); `w` lists joined devices with their signal.
+
+## Tomorrow: with the C5
+
+1. Antenna on the C5 first (never run a radio without one). Flash the
+   receiver: `.\tools\build.ps1 receiver -Port COMy -Flash -Monitor`.
+2. First boot with the **VTX off**: C5VRX calibrates for up to two
+   minutes. Then VTX on; in the C5 monitor press `T` for status (sync, AFC
+   lock, C/N) and `s` to scan. It starts on A1 (5865 MHz); the BOOT button
+   steps channels (short press) or opens the menu (hold 0.6 s).
+3. Unplug both, wire the 7 wires, plug both back in.
+4. Phone page: **Source** -> *C5 receiver*. The badge shows `LIVE NTSC`/`LIVE PAL`
+   when line and field sync are locked.
+5. If the picture is off: `bridge_tool.py raw` saves the raw bus samples and
+   a plot (`captures/raw_*.png`): the waveform should show sync pulses at the
+   bottom every 63.6 us; the stacked-lines image shows a straight dark band.
+
+## Controls
+
+Web page: Source, Levels (auto contrast / standard sync-referenced levels),
+Snapshot, Full screen, and arrows to move the picture (0.2 us / 1 line).
+The details panel shows lock, standard, levels, sample rate, decode load,
+fps, frame size and free memory.
+
+USB console (S3): `s` status, `t` source, `c` levels, `j`/`l` left/right,
+`i`/`k` up/down, `R` raw dump, `F` JPEG frame, `L` self-test, `G` capture
+diagnostics (clock pad, DMA, registers, restart variants), `h` help.
+
+The status line includes the decoder's health: `overruns` must stay 0;
+`load` is the share of core 1 used; `pass_max`, `gap_max` and `line_max`
+are the longest decode pass, wait and single line of the last 0.5 s.
+
+## How the bridge works
+
+- **Capture**: the S3 LCD_CAM camera receiver samples D0..D5 at 10 MHz
+  (menuconfig: 20 MHz) with its own clock routed out and back through
+  GPIO42; DE/HSYNC are tied high in the GPIO matrix, so every clock is a
+  sample. GDMA writes a 64 KiB ring in internal SRAM; each 2 KiB node ends
+  with an EOF whose interrupt advances the write position. No CPU per sample.
+  Board findings: recording starts on a rising VSYNC edge (VSYNC is tied
+  low during setup, then high), and that edge must come a few microseconds
+  after `cam_start`, or a restart records nothing; every start therefore
+  resets and reconfigures LCD_CAM and waits 20 us before the edge.
+  The C5 holds each of its 20 MS/s samples for 50 ns (two 40 MHz clocks), so
+  an asynchronous 10 MHz sample almost always lands on a settled value; the
+  rare one taken during a transition is smoothed by the decoder's filter.
+- **Decoder** (core 1, `video.c`): slicer between sync tip and blanking,
+  sync edges interpolated to 1/256 sample, a line PLL with flywheel
+  (±2 us search when locked), broad-pulse vertical sync, NTSC/PAL from lines
+  per field, levels from the sync tip and back porch, `[1 2 1]` low-pass
+  (−15 dB at the NTSC colour subcarrier) and 320 pixels per line. One field
+  becomes one frame: 320×240 NTSC, 320×288 PAL. Without sync it free-runs,
+  like an analog monitor. Only fields that will be encoded are drawn (every
+  other field at 30 fps), pixels go through a per-field level LUT, and the
+  project builds with `-O2`: at ESP-IDF's default `-Og` one drawn line took
+  longer than a line of video lasts.
+- **Stream** (core 0): grayscale JPEG (`esp_new_jpeg`, quality 60) at up to
+  30 fps, always the same field parity; MJPEG on port 81, page and status on
+  port 80. 2.4 GHz only: 5 GHz Wi-Fi would land on the FPV band.
+
+Expect a delay on the order of 100 ms (one field, JPEG, Wi-Fi, browser;
+not measured yet): fine for watching and recording, use the analog output
+for flying.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Network not visible / keeps dropping | Antenna on the S3's U.FL connector? `w` on the console shows each device's signal (better than −70 dBm is good). |
+| `CAPTURE FAULT` | Monitor log: `camera port records nothing`. Run the self-test without the C5. |
+| `NO SIGNAL` with the C5 wired | C5 status `T` shows video? Ground wire? `bridge_tool.py raw`: all zeros = wiring; noise = no VTX lock. |
+| Picture rolls or tears | Weak signal: sync is lost. Raw plot shows whether sync pulses reach the bottom. |
+| Picture shifted | Arrow buttons; offsets are not stored across reboots yet. |
+| Banded / scrambled picture | Two data wires swapped: bit order D4->D0 ... D9->D5. |
+| Too dark / washed out | Levels button: *auto* stretches the picture, *std* uses the sync amplitude. |
+| Reception worse with the S3 on | Move the antennas apart, lower `BRIDGE_WIFI_TX_POWER_DBM` (default 13 dBm). |
+| `overruns` climbing in `s` | The decoder falls behind: check `line_max` (must stay well under 63 us) and that `bridge\sdkconfig` has `CONFIG_COMPILER_OPTIMIZATION_PERF=y`. |
+| `.ps1 cannot be loaded` | Use the `powershell -ExecutionPolicy Bypass -File ...` form above. |
+
+## Next experiments
+
+- Colour: decode the 3.58/4.43 MHz subcarrier (needs 20 MHz sampling).
+- Phone control of the C5 (channel/scan) through a UART on its free GPIO2 pad.
+- Lower latency: WebSocket frames, smaller JPEG, or raw 160×120.
+- DVR to the PC: `bridge_tool.py frame` or record the MJPEG stream.
+
+## License
+
+`receiver/` is C5VRX, `GPL-3.0-only` (see its LICENSE and
+[branding terms](https://github.com/Twotoz/C5VRX/blob/main/assets/BRANDING.md)).
+`bridge/` and `tools/` are new code for this project and are not yet
+licensed; choose a license before publishing (GPL-3.0 keeps it in line
+with C5VRX).

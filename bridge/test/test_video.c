@@ -1,0 +1,166 @@
+/* Host test: decode the synthetic NTSC/PAL source with the bridge's video
+ * decoder and check lock, standard, field rate, alignment and levels.
+ * Build and run: python bridge/test/run_host_tests.py */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "testpattern.h"
+#include "video.h"
+
+#define RING (1u << 16)
+#define CHUNK 2048u
+
+static uint8_t s_ring[RING];
+static uint8_t s_fb[2][VIDEO_W * VIDEO_H_MAX];
+static uint8_t s_last[VIDEO_W * VIDEO_H_MAX];
+static int s_last_h, s_failures;
+
+/* Like the firmware: draw every other field only, keep the drawn ones. */
+static uint8_t *on_field(uint8_t *done, int w, int h, bool rendered, bool *render_next, void *ctx)
+{
+    (void)ctx;
+    if (rendered) {
+        memcpy(s_last, done, (size_t)(w * h));
+        s_last_h = h;
+    }
+    *render_next = !rendered;
+    return rendered ? (done == s_fb[0] ? s_fb[1] : s_fb[0]) : done;
+}
+
+#define CHECK(cond, ...) do { if (!(cond)) { printf("  FAIL: " __VA_ARGS__); printf("\n"); s_failures++; } } while (0)
+
+static int px(int x, int y) { return s_last[y * VIDEO_W + x]; }
+
+static void save_pgm(const char *name)
+{
+    char path[256];
+    snprintf(path, sizeof path, "test_out_%s.pgm", name);
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    fprintf(f, "P5\n%d %d\n255\n", VIDEO_W, s_last_h);
+    fwrite(s_last, 1, (size_t)(VIDEO_W * s_last_h), f);
+    fclose(f);
+}
+
+/* Feed `seconds` of signal in DMA-sized chunks, decoding after each chunk. */
+static void run(testpattern_t *tp, video_t *v, double seconds, bool signal)
+{
+    uint32_t end = tp->pos + (uint32_t)(seconds * tp->fs_hz);
+    while ((int32_t)(end - tp->pos) > 0) {
+        if (signal) {
+            testpattern_run_until(tp, tp->pos + CHUNK);
+        } else {
+            for (uint32_t k = 0; k < CHUNK; k++) s_ring[(tp->pos + k) & (RING - 1)] = 0;
+            tp->pos += CHUNK;
+        }
+        video_process(v, tp->pos);
+    }
+}
+
+static void check_picture(const testpattern_t *tp, const char *name)
+{
+    const double us0 = tp->pal ? 10.7 : 9.6, width = tp->pal ? 51.6 : 52.2;
+    const double x0 = tp->pal ? 10.5 : 9.4, xl = tp->pal ? 52.0 : 52.6;
+    const int tol = 24 + 4 * tp->noise;
+    int prev = 999;
+    for (int bar = 0; bar < 8; bar++) {
+        double t = x0 + xl * (bar + 0.5) / 8;
+        int x = (int)((t - us0) / width * VIDEO_W);
+        int want = 248 - bar * 248 / 7;
+        int got = px(x, 20);
+        CHECK(abs(got - want) <= tol, "%s: bar %d at x=%d is %d, want ~%d", name, bar, x, got, want);
+        CHECK(got < prev, "%s: bars not decreasing at bar %d", name, bar);
+        prev = got;
+    }
+    /* first and last picture rows must be picture, not blanking (PAL's last
+     * row is a half line in one of the two fields) */
+    CHECK(px(20, 0) > 200, "%s: row 0 is not the first picture line (%d)", name, px(20, 0));
+    int last = s_last_h - 2;
+    CHECK(px(VIDEO_W - 20, last) > px(20, last) + 150,
+          "%s: last row %d is not the ramp (%d .. %d)", name, last, px(20, last), px(VIDEO_W - 20, last));
+    /* The moving box: white inside (rows 41..78), black top edge on row 40,
+     * bars above it. Box columns are white on row 60 but not on row 100. */
+    int cols = 0, bad = 0;
+    for (int x = 0; x < VIDEO_W; x++) {
+        if (px(x, 60) < 220 || px(x, 100) > 160) continue;
+        cols++;
+        bad += !(px(x, 41) > 220 && px(x, 78) > 220 && px(x, 40) < 60 + 4 * tp->noise && px(x, 39) < 200);
+    }
+    CHECK(bad <= 2 + 2 * tp->noise, "%s: box misplaced (%d columns, %d wrong)", name, cols, bad);
+}
+
+static void scenario(const char *name, uint32_t fs, bool pal, int noise)
+{
+    printf("%s\n", name);
+    testpattern_t tp;
+    video_t v;
+    if (!testpattern_init(&tp, s_ring, RING, fs, pal)) {
+        printf("  FAIL: no memory\n");
+        s_failures++;
+        return;
+    }
+    tp.noise = noise;
+    testpattern_restart(&tp, 123456u);   /* arbitrary start, mid-field for the decoder */
+    video_init(&v, s_ring, RING, fs, s_fb[0], on_field, NULL);
+    video_reset(&v, tp.pos);
+    tp.line = 100;
+
+    run(&tp, &v, 2.0, true);
+    video_stats_t st;
+    video_get_stats(&v, &st);
+    double rate = pal ? 50.0 : 59.94;
+    printf("  locked h=%d v=%d std=%s lines/field=%d line=%.3f us fields=%u overruns=%u "
+           "sync=%.1f blank=%.1f map=%.1f..%.1f\n",
+           st.h_locked, st.v_locked, st.std == VIDEO_STD_PAL ? "PAL" : st.std == VIDEO_STD_NTSC ? "NTSC" : "?",
+           st.lines_per_field, st.line_us, st.fields, st.overruns, st.sync_level, st.blank_level,
+           st.black_level, st.white_level);
+    CHECK(st.h_locked && st.v_locked, "%s: not locked", name);
+    CHECK(st.std == (pal ? VIDEO_STD_PAL : VIDEO_STD_NTSC), "%s: wrong standard", name);
+    /* interlaced: fields alternate 262/263 (NTSC) and 312/313 (PAL) lines */
+    int lpf = pal ? 312 : 262;
+    CHECK(st.lines_per_field == lpf || st.lines_per_field == lpf + 1, "%s: %d lines per field", name, st.lines_per_field);
+    CHECK(st.fields >= (uint32_t)(2.0 * rate) - 6 && st.fields <= (uint32_t)(2.0 * rate) + 2,
+          "%s: %u fields in 2 s", name, st.fields);
+    CHECK(st.overruns == 0, "%s: %u overruns", name, st.overruns);
+    CHECK(st.sync_level > TP_SYNC - 1.0f && st.sync_level < TP_SYNC + 1.0f, "%s: sync level %.2f", name, st.sync_level);
+    CHECK(st.blank_level > TP_BLANK - 1.0f && st.blank_level < TP_BLANK + 1.0f, "%s: blank level %.2f", name, st.blank_level);
+    CHECK(s_last_h == (pal ? 288 : 240), "%s: frame height %d", name, s_last_h);
+    check_picture(&tp, name);
+    save_pgm(name);
+
+    /* Signal loss: fields keep coming (free-run), lock drops. */
+    uint32_t f0 = v.fields;
+    run(&tp, &v, 0.5, false);
+    video_get_stats(&v, &st);
+    printf("  no signal: locked h=%d fields +%u\n", st.h_locked, st.fields - f0);
+    CHECK(!st.h_locked, "%s: still locked without signal", name);
+    CHECK(st.fields - f0 >= 5, "%s: only %u fields without signal", name, st.fields - f0);
+
+    /* Signal back: relock within half a second. */
+    run(&tp, &v, 0.5, true);
+    video_get_stats(&v, &st);
+    printf("  signal back: locked h=%d v=%d\n", st.h_locked, st.v_locked);
+    CHECK(st.h_locked && st.v_locked, "%s: no relock", name);
+    check_picture(&tp, name);
+
+    /* Decoder starved for two rings: overrun detected, then relock. */
+    testpattern_run_until(&tp, tp.pos + 2 * RING);
+    run(&tp, &v, 0.5, true);
+    video_get_stats(&v, &st);
+    printf("  after starvation: overruns=%u locked h=%d v=%d\n", st.overruns, st.h_locked, st.v_locked);
+    CHECK(st.overruns >= 1, "%s: overrun not detected", name);
+    CHECK(st.h_locked && st.v_locked, "%s: no relock after overrun", name);
+    testpattern_free(&tp);
+}
+
+int main(void)
+{
+    scenario("ntsc_10mhz", 10000000, false, 0);
+    scenario("pal_10mhz", 10000000, true, 0);
+    scenario("ntsc_20mhz", 20000000, false, 0);
+    scenario("pal_20mhz", 20000000, true, 0);
+    scenario("ntsc_10mhz_noise3", 10000000, false, 3);
+    scenario("pal_10mhz_noise3", 10000000, true, 3);
+    printf(s_failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", s_failures);
+    return s_failures ? 1 : 0;
+}

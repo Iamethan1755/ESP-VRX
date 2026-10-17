@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>C5VRX Bridge</title>
+<style>
+  :root { --bg:#0b0d10; --panel:#161a20; --text:#e8eaed; --muted:#8b93a0; --ok:#3fb950; --bad:#f85149; --warn:#d29922; --btn:#232a33; --btn-active:#2f3945; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  main { max-width:960px; margin:0 auto; padding:12px 16px 24px; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
+  h1 { font-size:17px; margin:0; letter-spacing:.02em; }
+  .badge { font-size:13px; font-weight:600; padding:3px 10px; border-radius:999px; background:var(--panel); white-space:nowrap; }
+  .badge.ok { color:var(--ok); } .badge.bad { color:var(--bad); } .badge.warn { color:var(--warn); }
+  .screen { position:relative; width:100%; aspect-ratio:4/3; background:#000; border-radius:10px; overflow:hidden; }
+  .screen img { width:100%; height:100%; object-fit:fill; display:block; image-rendering:auto; }
+  .overlay { position:absolute; inset:auto 8px 8px 8px; display:flex; justify-content:space-between; font:12px/1.2 ui-monospace, Menlo, Consolas, monospace; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none; }
+  .controls { display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin:12px 0; }
+  button { background:var(--btn); color:var(--text); border:0; border-radius:8px; padding:12px 6px; font:inherit; font-weight:600; touch-action:manipulation; }
+  button:active { background:var(--btn-active); }
+  details { background:var(--panel); border-radius:10px; padding:10px 12px; }
+  summary { cursor:pointer; color:var(--muted); }
+  table { width:100%; border-collapse:collapse; margin-top:8px; font:13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+  td { padding:2px 0; } td:last-child { text-align:right; }
+  footer { margin-top:14px; color:var(--muted); font-size:12px; }
+  footer a { color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>C5VRX Bridge</h1>
+    <span id="badge" class="badge warn">connecting</span>
+  </header>
+  <div class="screen" id="screen">
+    <img id="video" alt="Live video from the C5VRX receiver">
+    <div class="overlay"><span id="ov-left"></span><span id="ov-right"></span></div>
+  </div>
+  <div class="controls">
+    <button data-cmd="t" title="C5 input / NTSC test pattern / PAL test pattern">Source</button>
+    <button data-cmd="c" title="Auto contrast or standard levels">Levels</button>
+    <button id="snap" title="Open the current frame as a JPEG">Snapshot</button>
+    <button id="full" title="Full screen">Full</button>
+    <button data-cmd="j" title="Move picture left">&#9664;</button>
+    <button data-cmd="l" title="Move picture right">&#9654;</button>
+    <button data-cmd="i" title="Move picture up">&#9650;</button>
+    <button data-cmd="k" title="Move picture down">&#9660;</button>
+  </div>
+  <details>
+    <summary>Receiver details</summary>
+    <table id="details"></table>
+  </details>
+  <footer>Video decoded from a <a href="https://github.com/Twotoz/C5VRX">C5VRX</a> receiver (by Twotoz and the C5VRX contributors) and streamed by an ESP32-S3.</footer>
+</main>
+<script>
+(() => {
+  const video = document.getElementById('video');
+  const streamUrl = `http://${location.hostname}:81/stream`;
+  let retry = null;
+  const start = () => { video.src = streamUrl + '?t=' + Date.now(); };
+  video.onerror = () => { clearTimeout(retry); retry = setTimeout(start, 1000); };
+  start();
+
+  document.querySelectorAll('button[data-cmd]').forEach(b => {
+    b.addEventListener('click', () => fetch('/cmd?c=' + b.dataset.cmd).then(poll).catch(() => {}));
+  });
+  document.getElementById('snap').onclick = () => window.open('/snapshot.jpg?t=' + Date.now(), '_blank');
+  document.getElementById('full').onclick = () => {
+    const el = document.getElementById('screen');
+    (el.requestFullscreen || el.webkitRequestFullscreen || (() => {})).call(el);
+  };
+
+  const badge = document.getElementById('badge');
+  const rows = [
+    ['Source', s => ({ c5: 'C5 receiver', 'test-ntsc': 'Test pattern NTSC', 'test-pal': 'Test pattern PAL' }[s.source] || s.source)],
+    ['Line sync / field sync', s => `${s.h_locked ? 'locked' : 'searching'} / ${s.v_locked ? 'locked' : 'searching'}`],
+    ['Standard', s => `${s.std}, ${s.lines_per_field} lines per field, ${s.line_us.toFixed(2)} µs lines`],
+    ['Levels (DAC codes)', s => `sync ${s.sync}, blank ${s.blank}, shown ${s.black}–${s.white} (${s.levels})`],
+    ['Picture offset', s => `${s.h_offset_us.toFixed(1)} µs, ${s.v_offset} lines`],
+    ['Input rate / decode load', s => `${s.msps.toFixed(2)} MS/s, ${Math.round(s.load * 100)} %`],
+    ['Stream', s => `${s.fps.toFixed(1)} fps, ${(s.jpeg_bytes / 1024).toFixed(1)} KB/frame, ${s.clients} viewer(s), ${s.stations} on Wi-Fi`],
+    ['Fields / overruns / lock losses', s => `${s.fields} / ${s.overruns} / ${s.lock_losses}`],
+    ['Free RAM internal / PSRAM', s => `${(s.heap_int / 1024).toFixed(0)} KB / ${(s.heap_psram / 1024).toFixed(0)} KB`],
+    ['Uptime', s => `${s.uptime} s`],
+  ];
+  const table = document.getElementById('details');
+  table.innerHTML = rows.map(([k], i) => `<tr><td>${k}</td><td id="r${i}"></td></tr>`).join('');
+
+  function poll() {
+    return fetch('/status', { cache: 'no-store' }).then(r => r.json()).then(s => {
+      let text = 'NO SIGNAL', cls = 'bad';
+      if (!s.capture_ok) { text = 'CAPTURE FAULT'; }
+      else if (s.h_locked && s.v_locked) { text = s.source === 'c5' ? `LIVE ${s.std}` : `TEST ${s.std}`; cls = 'ok'; }
+      else if (s.h_locked) { text = 'NO FIELD SYNC'; cls = 'warn'; }
+      badge.textContent = text; badge.className = 'badge ' + cls;
+      document.getElementById('ov-left').textContent = text;
+      document.getElementById('ov-right').textContent = `${s.fps.toFixed(0)} fps`;
+      rows.forEach(([, f], i) => { document.getElementById('r' + i).textContent = f(s); });
+    }).catch(() => { badge.textContent = 'offline'; badge.className = 'badge bad'; });
+  }
+  poll();
+  setInterval(poll, 1000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+build/
+.venv/
+captures/
+*.log
+bridge/sdkconfig
+bridge/sdkconfig.old
+bridge/managed_components/
+bridge/test/test_video
+bridge/test/*.exe
+bridge/test/*.pdb
+bridge/test/test_out_*
+__pycache__/

@@ -1,0 +1,82 @@
+menu "C5VRX Wi-Fi bridge"
+
+    config BRIDGE_WIFI_SSID
+        string "Wi-Fi network name (SSID)"
+        default "C5VRX-Bridge"
+
+    config BRIDGE_WIFI_PASSWORD
+        string "Wi-Fi password (8+ characters, empty for an open network)"
+        default "c5vrxwifi"
+
+    config BRIDGE_WIFI_CHANNEL
+        int "2.4 GHz Wi-Fi channel"
+        range 1 13
+        default 1
+
+    config BRIDGE_WIFI_TX_POWER_DBM
+        int "Wi-Fi transmit power (dBm)"
+        range 2 20
+        default 13
+        help
+            Lower power reaches a phone a few metres away and puts less 2.4 GHz
+            energy into the C5's receiver next to it.
+
+    choice BRIDGE_SAMPLE_RATE
+        prompt "Video bus sample rate"
+        default BRIDGE_SAMPLE_10MHZ
+        help
+            The C5 outputs 20 MS/s of unique samples (each repeated at 40 MHz).
+            10 MHz is plenty for 320 pixels across and halves memory traffic.
+        config BRIDGE_SAMPLE_10MHZ
+            bool "10 MHz"
+        config BRIDGE_SAMPLE_20MHZ
+            bool "20 MHz"
+    endchoice
+
+    config BRIDGE_SAMPLE_MHZ
+        int
+        default 10 if BRIDGE_SAMPLE_10MHZ
+        default 20 if BRIDGE_SAMPLE_20MHZ
+
+    config BRIDGE_GPIO_D0
+        int "GPIO for video bit 0 (C5 D4)"
+        default 1
+    config BRIDGE_GPIO_D1
+        int "GPIO for video bit 1 (C5 D5)"
+        default 2
+    config BRIDGE_GPIO_D2
+        int "GPIO for video bit 2 (C5 D6)"
+        default 3
+    config BRIDGE_GPIO_D3
+        int "GPIO for video bit 3 (C5 D7)"
+        default 4
+    config BRIDGE_GPIO_D4
+        int "GPIO for video bit 4 (C5 D8)"
+        default 5
+    config BRIDGE_GPIO_D5
+        int "GPIO for video bit 5 (C5 D9)"
+        default 6
+
+    config BRIDGE_GPIO_PCLK_LOOP
+        int "Unconnected GPIO that loops the sample clock back"
+        default 42
+        help
+            The camera port needs its clock on a pin. This pin carries the
+            sample clock out and back in; never connect anything to it.
+            42 is the MTMS pad on the back of the XIAO ESP32-S3.
+
+    config BRIDGE_MAX_FPS
+        int "Maximum JPEG frames per second"
+        range 1 60
+        default 30
+
+    config BRIDGE_JPEG_QUALITY
+        int "JPEG quality"
+        range 10 100
+        default 60
+
+    config BRIDGE_TEST_PATTERN_AT_BOOT
+        bool "Start with the NTSC test pattern instead of the C5 input"
+        default n
+
+endmenu
