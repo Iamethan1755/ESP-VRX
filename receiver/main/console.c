@@ -3,6 +3,9 @@
 #include "receiver.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include "driver/gpio.h"
+#include "driver/uart.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -69,7 +72,8 @@ static void help(void)
            "  I IQ snapshot, o menu open/close, n/x menu next/select, c next channel, b next band, s scan,\n"
            "  v video standard AUTO/NTSC/PAL, e close menu (web menu direct controls),\n"
            "  F calibrate (startup steps again; video stops), L bench IQ lane comparison (video stops ~3 s),\n"
-           "  ` reboot to USB download (flashing)\n");
+           "  ` reboot to USB download (flashing)\n"
+           "  Wi-Fi bridge: o c b s n x v e also arrive as \"<k>\" frames on GPIO2 (UART, 115200)\n");
 }
 
 /* The USB reader runs above every receiver task: the download key and the
@@ -132,6 +136,59 @@ static void console_task(void *arg)
     }
 }
 
+/* c5vrx-wifi bridge (branch wifi-bridge): menu keys from the ESP32-S3
+ * Wi-Fi bridge on GPIO2 (the MTMS pad), UART 115200 8N1, receive only.
+ * GPIO2 is listed as a strapping pin but selects nothing at boot (ESP32-C5
+ * datasheet v1.5 ch. 3: boot mode is GPIO26..28, JTAG source GPIO7, SDIO
+ * edges GPIO25/MTDI), so the bridge's idle-high line is harmless at reset.
+ * Each key comes framed as "<k>" and only the on-screen menu, channel,
+ * band and scan keys are accepted: a floating or noisy wire cannot change
+ * the channel and can never reach the download or calibration keys. */
+#define BRIDGE_UART    UART_NUM_1
+#define BRIDGE_RX_GPIO 2
+#define BRIDGE_KEYS    "ocbsnxve"
+
+static void bridge_key_task(void *arg)
+{
+    (void)arg;
+    int state = 0;   /* 0: want '<', 1: want key, 2: want '>' */
+    uint8_t key = 0;
+    for (;;) {
+        uint8_t c;
+        if (uart_read_bytes(BRIDGE_UART, &c, 1, portMAX_DELAY) != 1) continue;
+        if (state == 1) {
+            key = c;
+            state = 2;
+        } else if (state == 2 && c == '>' && key && strchr(BRIDGE_KEYS, key)) {
+            (void)xQueueSend(s_keys, &key, 0);
+            printf("BRIDGE key %c\n", key);
+            state = 0;
+        } else {
+            state = c == '<' ? 1 : 0;
+        }
+    }
+}
+
+static void bridge_keys_start(void)
+{
+    const uart_config_t cfg = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_DEFAULT,
+    };
+    if (uart_driver_install(BRIDGE_UART, 256, 0, 0, NULL, 0) != ESP_OK ||
+        uart_param_config(BRIDGE_UART, &cfg) != ESP_OK ||
+        uart_set_pin(BRIDGE_UART, UART_PIN_NO_CHANGE, BRIDGE_RX_GPIO, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) != ESP_OK) {
+        printf("BRIDGE keys on GPIO%d unavailable\n", BRIDGE_RX_GPIO);
+        return;
+    }
+    gpio_pullup_en(BRIDGE_RX_GPIO);   /* idle (high) when no bridge is attached */
+    (void)xTaskCreate(bridge_key_task, "bridge_keys", 2560, NULL, 2, NULL);
+}
+
 void console_start(void)
 {
     s_keys = xQueueCreate(64, 1);
@@ -139,5 +196,6 @@ void console_start(void)
     ESP_ERROR_CHECK(xTaskCreate(console_task, "console", 6144, NULL, 2, NULL) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
     ESP_ERROR_CHECK(xTaskCreate(usb_reader_task, "usb_reader", 3072, NULL, 10, NULL) == pdPASS ? ESP_OK :
                     ESP_ERR_NO_MEM);
+    bridge_keys_start();
 }
 
