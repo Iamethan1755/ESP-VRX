@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "bridge.h"
+#include "c5link.h"
 #include "capture.h"
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
@@ -19,7 +20,10 @@ static const char *HELP =
     "  s  status            t  next source (C5 / NTSC test / PAL test)\n"
     "  c  levels auto/std   j l  picture left/right   i k  picture up/down\n"
     "  R  raw sample dump   F  current JPEG frame     L  loopback self-test\n"
-    "  w  Wi-Fi details     G  capture diagnostics    h  this help\n";
+    "  w  Wi-Fi details     G  capture diagnostics    h  this help\n"
+    "  C<k>  send receiver key k to the C5 (c channel, b band, s scan, o menu,\n"
+    "        n/x menu next/select, e close menu, v video standard)\n"
+    "  u  check the C5 key link pin\n";
 
 static void print_base64(const uint8_t *p, size_t n)
 {
@@ -133,6 +137,17 @@ static void console_task(void *arg)
         case 'G': {
             static char report[1024];
             capture_debug(report, sizeof report);
+            puts(report);
+            break;
+        }
+        case 'C': {
+            const char k = read_key();
+            printf(c5link_send(k) ? "C5 <- %c\n" : "C5 key %c not accepted (keys: " C5LINK_KEYS ")\n", k);
+            break;
+        }
+        case 'u': {
+            char report[160];
+            c5link_selftest(report, sizeof report);
             puts(report);
             break;
         }

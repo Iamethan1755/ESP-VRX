@@ -4,15 +4,17 @@ An analog 5.8 GHz FPV receiver on an ESP32-C5 whose picture is also streamed
 over Wi-Fi to a phone browser:
 
 ```
-VTX ))) XIAO ESP32-C5 (C5VRX-5, unmodified) --6-bit video bus D4..D9--+--> resistor DAC --> goggles (optional)
+VTX ))) XIAO ESP32-C5 (C5VRX-5)            --6-bit video bus D4..D9--+--> resistor DAC --> goggles (optional)
                                                                       |
                                                                       +--> XIAO ESP32-S3 camera port
                                                                            --> sync lock --> 320x240 gray
                                                                            --> JPEG --> Wi-Fi AP --> phone
+        C5 GPIO2 <-- "<c>" channel/band/scan/menu keys (UART) ----------- S3 D8 <-- phone buttons
 ```
 
-> This project incorporates the C5VRX-5 receiver firmware (as the unmodified
-> `receiver/` submodule, release `c5vrx5-v5.0.109`) and builds on its documented
+> This project incorporates the C5VRX-5 receiver firmware (as the `receiver/`
+> submodule: release `c5vrx5-v5.0.109` plus one change on the local branch
+> `wifi-bridge`, a UART key reader in `main/console.c`) and builds on its documented
 > video DAC output from [C5VRX](https://github.com/Twotoz/C5VRX) by Twotoz and
 > the C5VRX contributors. Visit the
 > [official C5VRX website](https://twotoz.github.io/C5VRX/) for the original
@@ -22,19 +24,20 @@ VTX ))) XIAO ESP32-C5 (C5VRX-5, unmodified) --6-bit video bus D4..D9--+--> resis
 ## Layout
 
 ```
-receiver/   C5VRX (git submodule, pinned): firmware for the XIAO ESP32-C5
+receiver/   C5VRX (git submodule, branch wifi-bridge): firmware for the XIAO ESP32-C5
 bridge/     ESP-IDF project for the XIAO ESP32-S3 (capture, decoder, JPEG, Wi-Fi)
   main/video.c        composite decoder: line PLL, vertical sync, levels, 320 px lines
   main/testpattern.c  synthetic interlaced NTSC/PAL source (bars, ramp, moving box)
   main/capture.c      S3 camera port + DMA ring, loopback self-test
   main/stream.c       Wi-Fi access point, web page, MJPEG stream
   main/console.c      USB console keys
+  main/c5link.c       receiver keys to the C5 over a UART wire
   main/web/index.html the phone page
   test/               host test of the decoder (runs on the PC, no hardware)
 tools/      build.ps1 (build/flash/monitor), bridge_tool.py (status, captures, self-test)
 ```
 
-## Wiring (7 wires)
+## Wiring (7 wires, plus 1 for phone control of the receiver)
 
 | XIAO ESP32-C5 | video bit | XIAO ESP32-S3 |
 | --- | --- | --- |
@@ -45,7 +48,16 @@ tools/      build.ps1 (build/flash/monitor), bridge_tool.py (status, captures, s
 | D8 (GPIO8) | 4 | D4 (GPIO5) |
 | D9 (GPIO9) | 5 (MSB) | D5 (GPIO6) |
 | GND | ground | GND |
+| GPIO2 (MTMS pad, back side) | receiver keys (UART RX) | D8 (GPIO7) through **1 kΩ** |
 
+- **The receiver-key wire is optional.** Without it everything works; the
+  C5's channel is then changed with its BOOT button. GPIO2 is a pad on the
+  back of the XIAO ESP32-C5 (check the pad labels; it is the JTAG MTMS pad).
+  It is listed as a strapping pin but selects nothing at boot (ESP32-C5
+  datasheet v1.5, chapter 3: boot mode is GPIO26..28, JTAG source GPIO7,
+  SDIO edges GPIO25/MTDI), so the S3's idle-high UART line cannot change how
+  the C5 boots. The 1 kΩ keeps the S3 from feeding current into an
+  unpowered C5 through that pin.
 - **Never connect C5 D0..D3 or D10.** C5VRX drives them with the raw radio
   data of its internal IQ loopback.
 - **Leave the S3's GPIO42 pad (MTMS, back side) unconnected.** It carries
@@ -148,9 +160,17 @@ Snapshot, Full screen, and arrows to move the picture (0.2 us / 1 line).
 The details panel shows lock, standard, levels, sample rate, decode load,
 fps, frame size and free memory.
 
+Receiver buttons (needs the key wire and this repo's `receiver/` build):
+Channel ▸, Band ▸, Scan, Menu, Next, Select, Close and Video std send
+C5VRX's own console keys (`c b s o n x e v`) as `<k>` frames over the wire.
+C5VRX draws its menu, channel and scan results into the video, so they show
+up in the stream. Only these keys are accepted by the receiver; the download
+and calibration keys cannot be sent from the phone.
+
 USB console (S3): `s` status, `t` source, `c` levels, `j`/`l` left/right,
 `i`/`k` up/down, `R` raw dump, `F` JPEG frame, `L` self-test, `G` capture
-diagnostics (clock pad, DMA, registers, restart variants), `h` help.
+diagnostics (clock pad, DMA, registers, restart variants), `C` followed by
+a receiver key (e.g. `Cc` next channel), `u` check the key-link pin, `h` help.
 
 The status line includes the decoder's health: `overruns` must stay 0;
 `load` is the share of core 1 used; `pass_max`, `gap_max` and `line_max`
@@ -201,12 +221,13 @@ for flying.
 | Too dark / washed out | Levels button: *auto* stretches the picture, *std* uses the sync amplitude. |
 | Reception worse with the S3 on | Move the antennas apart, lower `BRIDGE_WIFI_TX_POWER_DBM` (default 13 dBm). |
 | `overruns` climbing in `s` | The decoder falls behind: check `line_max` (must stay well under 63 us) and that `bridge\sdkconfig` has `CONFIG_COMPILER_OPTIMIZATION_PERF=y`. |
+| Receiver buttons do nothing | `u` on the S3 console must PASS; the C5 console prints `BRIDGE key c` for each key it gets (otherwise check the GPIO2 wire, the 1 kΩ, and that the C5 runs this repo's `receiver/` build). |
 | `.ps1 cannot be loaded` | Use the `powershell -ExecutionPolicy Bypass -File ...` form above. |
 
 ## Next experiments
 
 - Colour: decode the 3.58/4.43 MHz subcarrier (needs 20 MHz sampling).
-- Phone control of the C5 (channel/scan) through a UART on its free GPIO2 pad.
+- Show the C5's channel on the page: a return wire, or read C5VRX's `STATUS` beat.
 - Lower latency: WebSocket frames, smaller JPEG, or raw 160×120.
 - DVR to the PC: `bridge_tool.py frame` or record the MJPEG stream.
 

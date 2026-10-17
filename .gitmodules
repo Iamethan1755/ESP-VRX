@@ -1,3 +1,4 @@
 [submodule "receiver"]
 	path = receiver
 	url = https://github.com/Twotoz/C5VRX.git
+	branch = wifi-bridge

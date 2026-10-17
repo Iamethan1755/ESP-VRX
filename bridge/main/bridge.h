@@ -23,6 +23,7 @@ typedef struct {
     uint32_t jpeg_frames;
     int clients;              /* open video streams */
     int stations;             /* devices on the bridge's Wi-Fi */
+    uint32_t c5_keys;         /* keys sent to the receiver over the UART link */
     uint32_t heap_internal;
     uint32_t heap_psram;
     uint32_t uptime_s;

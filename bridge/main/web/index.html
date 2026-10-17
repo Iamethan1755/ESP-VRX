@@ -23,6 +23,8 @@
   summary { cursor:pointer; color:var(--muted); }
   table { width:100%; border-collapse:collapse; margin-top:8px; font:13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
   td { padding:2px 0; } td:last-child { text-align:right; }
+  h2.section { font-size:13px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin:4px 0 -4px; }
+  .hint { color:var(--muted); font-size:12px; margin:-4px 0 12px; }
   footer { margin-top:14px; color:var(--muted); font-size:12px; }
   footer a { color:var(--muted); }
 </style>
@@ -47,6 +49,18 @@
     <button data-cmd="i" title="Move picture up">&#9650;</button>
     <button data-cmd="k" title="Move picture down">&#9660;</button>
   </div>
+  <h2 class="section">Receiver</h2>
+  <div class="controls">
+    <button data-c5="c" title="Next channel in the band">Channel &#9656;</button>
+    <button data-c5="b" title="Next band">Band &#9656;</button>
+    <button data-c5="s" title="Scan all 48 channels, pick the strongest">Scan</button>
+    <button data-c5="o" title="Open or close the receiver menu (shows in the video)">Menu</button>
+    <button data-c5="n" title="Menu: next item">Next</button>
+    <button data-c5="x" title="Menu: do the item">Select</button>
+    <button data-c5="e" title="Close the menu">Close</button>
+    <button data-c5="v" title="Receiver video standard AUTO / NTSC / PAL">Video std</button>
+  </div>
+  <p class="hint" id="c5hint">Receiver keys go to the C5 over the link wire (S3 D8 &rarr; C5 GPIO2). Its menu, channel and scan results appear in the picture.</p>
   <details>
     <summary>Receiver details</summary>
     <table id="details"></table>
@@ -65,6 +79,12 @@
   document.querySelectorAll('button[data-cmd]').forEach(b => {
     b.addEventListener('click', () => fetch('/cmd?c=' + b.dataset.cmd).then(poll).catch(() => {}));
   });
+  const hint = document.getElementById('c5hint');
+  document.querySelectorAll('button[data-c5]').forEach(b => {
+    b.addEventListener('click', () => fetch('/c5?k=' + b.dataset.c5)
+      .then(r => { hint.textContent = r.ok ? `Sent "${b.textContent.trim()}" to the receiver.` : 'The bridge did not accept that key.'; })
+      .catch(() => { hint.textContent = 'Bridge not reachable.'; }));
+  });
   document.getElementById('snap').onclick = () => window.open('/snapshot.jpg?t=' + Date.now(), '_blank');
   document.getElementById('full').onclick = () => {
     const el = document.getElementById('screen');
@@ -81,6 +101,7 @@
     ['Input rate / decode load', s => `${s.msps.toFixed(2)} MS/s, ${Math.round(s.load * 100)} %`],
     ['Stream', s => `${s.fps.toFixed(1)} fps, ${(s.jpeg_bytes / 1024).toFixed(1)} KB/frame, ${s.clients} viewer(s), ${s.stations} on Wi-Fi`],
     ['Fields / overruns / lock losses', s => `${s.fields} / ${s.overruns} / ${s.lock_losses}`],
+    ['Receiver keys sent', s => `${s.c5_keys}`],
     ['Free RAM internal / PSRAM', s => `${(s.heap_int / 1024).toFixed(0)} KB / ${(s.heap_psram / 1024).toFixed(0)} KB`],
     ['Uptime', s => `${s.uptime} s`],
   ];

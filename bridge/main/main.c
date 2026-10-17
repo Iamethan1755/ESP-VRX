@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "bridge.h"
+#include "c5link.h"
 #include "capture.h"
 #include "console.h"
 #include "esp_heap_caps.h"
@@ -181,6 +182,7 @@ void bridge_get_status(bridge_status_t *out)
     out->capture_ok = s_source != SOURCE_LIVE || capture_running();
     stream_stats(&out->fps, &out->jpeg_bytes, &out->jpeg_frames, &out->clients);
     out->stations = stream_wifi_stations();
+    out->c5_keys = c5link_sent();
     out->heap_internal = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     out->heap_psram = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     out->uptime_s = (uint32_t)(esp_timer_get_time() / 1000000);
@@ -196,13 +198,13 @@ int bridge_status_json(char *buf, size_t len)
         "\"lines_per_field\":%d,\"line_us\":%.3f,\"sync\":%.1f,\"blank\":%.1f,\"black\":%.1f,\"white\":%.1f,"
         "\"levels\":\"%s\",\"fields\":%lu,\"overruns\":%lu,\"lock_losses\":%lu,\"h_offset_us\":%.1f,"
         "\"v_offset\":%d,\"msps\":%.2f,\"load\":%.2f,\"fps\":%.1f,\"jpeg_bytes\":%lu,\"frames\":%lu,"
-        "\"clients\":%d,\"stations\":%d,\"heap_int\":%lu,\"heap_psram\":%lu,\"uptime\":%lu}",
+        "\"clients\":%d,\"stations\":%d,\"c5_keys\":%lu,\"heap_int\":%lu,\"heap_psram\":%lu,\"uptime\":%lu}",
         bridge_source_name(s.source), s.capture_ok ? "true" : "false", v->h_locked ? "true" : "false",
         v->v_locked ? "true" : "false", v->std == VIDEO_STD_PAL ? "PAL" : "NTSC", v->lines_per_field, v->line_us,
         v->sync_level, v->blank_level, v->black_level, v->white_level,
         v->levels == VIDEO_LEVELS_AUTO ? "auto" : "std", (unsigned long)v->fields, (unsigned long)v->overruns,
         (unsigned long)v->lock_losses, v->h_offset_tenths_us / 10.0, v->v_offset_lines, s.sample_msps,
-        s.decode_load, s.fps, (unsigned long)s.jpeg_bytes, (unsigned long)s.jpeg_frames, s.clients, s.stations,
+        s.decode_load, s.fps, (unsigned long)s.jpeg_bytes, (unsigned long)s.jpeg_frames, s.clients, s.stations, (unsigned long)s.c5_keys,
         (unsigned long)s.heap_internal, (unsigned long)s.heap_psram, (unsigned long)s.uptime_s);
     return n < (int)len ? n : (int)len - 1;
 }
@@ -240,6 +242,7 @@ void app_main(void)
     ESP_ERROR_CHECK(s_cmds && s_fb[0] && s_fb[1] ? ESP_OK : ESP_ERR_NO_MEM);
     ESP_ERROR_CHECK(capture_init(s_fs_hz));
     video_init(&s_video, capture_ring(), CAPTURE_RING_BYTES, s_fs_hz, s_fb[0], on_field, NULL);
+    if (c5link_init() != ESP_OK) ESP_LOGE(TAG, "receiver key link unavailable");
     ESP_ERROR_CHECK(stream_start());
 #ifdef CONFIG_BRIDGE_TEST_PATTERN_AT_BOOT
     set_source(SOURCE_TEST_NTSC);

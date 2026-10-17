@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "bridge.h"
+#include "c5link.h"
 #include "esp_event.h"
 #include "esp_heap_caps.h"
 #include "esp_http_server.h"
@@ -179,6 +180,19 @@ static esp_err_t cmd_get(httpd_req_t *req)
               httpd_query_key_value(query, "c", val, sizeof val) == ESP_OK &&
               val[0] && !val[1] && bridge_command(val[0]);
     if (!ok) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unknown command");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_sendstr(req, "ok");
+}
+
+/* /c5?k=X: one receiver key over the UART link (see c5link.h). */
+static esp_err_t c5_get(httpd_req_t *req)
+{
+    char query[32], val[4];
+    bool ok = httpd_req_get_url_query_str(req, query, sizeof query) == ESP_OK &&
+              httpd_query_key_value(query, "k", val, sizeof val) == ESP_OK &&
+              val[0] && !val[1] && c5link_send(val[0]);
+    if (!ok) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unknown receiver key");
+    printf("C5 <- %c\n", val[0]);
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     return httpd_resp_sendstr(req, "ok");
 }
@@ -406,6 +420,7 @@ esp_err_t stream_start(void)
         {.uri = "/", .method = HTTP_GET, .handler = index_get},
         {.uri = "/status", .method = HTTP_GET, .handler = status_get},
         {.uri = "/cmd", .method = HTTP_GET, .handler = cmd_get},
+        {.uri = "/c5", .method = HTTP_GET, .handler = c5_get},
         {.uri = "/snapshot.jpg", .method = HTTP_GET, .handler = snapshot_get},
     };
     static const httpd_uri_t stream_uris[] = {

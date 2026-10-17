@@ -57,6 +57,14 @@ menu "C5VRX Wi-Fi bridge"
         int "GPIO for video bit 5 (C5 D9)"
         default 6
 
+    config BRIDGE_GPIO_C5_TX
+        int "GPIO sending menu/channel keys to the C5 (UART TX)"
+        default 7
+        help
+            Wire this pin (D8 on the XIAO ESP32-S3) through a 1 kOhm resistor
+            to GPIO2 of the XIAO ESP32-C5 (the MTMS pad on its back). The
+            receiver needs the wifi-bridge branch of C5VRX in receiver/.
+
     config BRIDGE_GPIO_PCLK_LOOP
         int "Unconnected GPIO that loops the sample clock back"
         default 42
