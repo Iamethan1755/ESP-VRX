@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
 /* Host test: decode the synthetic NTSC/PAL source with the bridge's video
  * decoder and check lock, standard, field rate, alignment and levels.
  * Build and run: python bridge/test/run_host_tests.py */

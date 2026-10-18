@@ -1,4 +1,5 @@
-/* Shared state of the C5VRX Wi-Fi bridge: source selection, status and the
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* Shared state of VRX Bridge: source selection, status and the
  * picture commands used by both the USB console and the web page. */
 #pragma once
 #include <stdbool.h>

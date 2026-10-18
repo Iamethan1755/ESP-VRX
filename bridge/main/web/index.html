@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -9,7 +10,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="VRX Bridge">
 <meta name="theme-color" content="#0b0d10">
-<title>C5VRX Bridge</title>
+<title>VRX Bridge</title>
 <style>
   :root { --bg:#0b0d10; --panel:#161a20; --text:#e8eaed; --muted:#8b93a0; --ok:#3fb950; --bad:#f85149; --warn:#d29922; --btn:#232a33; --btn-active:#2f3945; }
   * { box-sizing:border-box; }
@@ -20,20 +21,27 @@
   .badge { font-size:13px; font-weight:600; padding:3px 10px; border-radius:999px; background:var(--panel); white-space:nowrap; }
   .badge.ok { color:var(--ok); } .badge.bad { color:var(--bad); } .badge.warn { color:var(--warn); }
   .screen { position:relative; width:100%; aspect-ratio:4/3; background:#000; border-radius:10px; overflow:hidden; }
-  .screen img { width:100%; height:100%; object-fit:fill; display:block; image-rendering:auto; }
-  .overlay { position:absolute; inset:auto 8px 8px 8px; display:flex; justify-content:space-between; font:12px/1.2 ui-monospace, Menlo, Consolas, monospace; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none; }
-  /* Full screen: the browser's own where it exists (desktop, Android, iPad);
-   * iPhone Safari has none for page elements, so there the picture covers
-   * the window (.fs). Either way the picture stays 4:3, centred. */
+  /* The picture: frames are drawn on the canvas, whose stream plays in the
+   * video (so Full can hand it to the phone's own video player). The canvas
+   * shows on top until the video really plays (autoplay can be refused). */
+  .screen video, .screen canvas { position:absolute; inset:0; margin:auto; width:100%; height:100%; display:block; object-fit:fill; background:#000; }
+  .screen canvas { z-index:1; }
+  .screen.via-video canvas { visibility:hidden; }
+  .overlay { position:absolute; z-index:2; inset:auto 8px 8px 8px; display:flex; justify-content:space-between; font:12px/1.2 ui-monospace, Menlo, Consolas, monospace; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none; }
+  /* Full screen: iPhone uses its native video player (like a YouTube video);
+   * desktop, Android and iPad the browser's full screen; else the picture
+   * covers the window (.fs). The picture stays 4:3, centred. */
   .screen { touch-action:manipulation; }
   .screen.fs { position:fixed; inset:0; z-index:10; width:auto; aspect-ratio:auto; border-radius:0;
                padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
   .screen:fullscreen { border-radius:0; }
   .screen:-webkit-full-screen { border-radius:0; width:100%; height:100%; }
-  .screen.fs, .screen.fs-native { display:flex; align-items:center; justify-content:center; container-type:size; }
-  .screen.fs img, .screen.fs-native img { width:min(100vw, 133.33vh); width:min(100cqw, 133.33cqh); height:auto; aspect-ratio:4/3; }
+  .screen.fs, .screen.fs-native { container-type:size; }
+  .screen.fs video, .screen.fs canvas, .screen.fs-native video, .screen.fs-native canvas {
+    width:min(100vw, 133.33vh); height:min(75vw, 100vh); width:min(100cqw, 133.33cqh); height:min(75cqw, 100cqh); }
+  .screen.fs video, .screen.fs canvas { top:env(safe-area-inset-top); right:env(safe-area-inset-right); bottom:env(safe-area-inset-bottom); left:env(safe-area-inset-left); }
   .screen.fs .overlay { inset:auto calc(env(safe-area-inset-right) + 12px) calc(env(safe-area-inset-bottom) + 10px) calc(env(safe-area-inset-left) + 12px); font-size:13px; }
-  .fs-exit { display:none; position:absolute; z-index:2; top:calc(env(safe-area-inset-top) + 10px); right:calc(env(safe-area-inset-right) + 10px);
+  .fs-exit { display:none; position:absolute; z-index:3; top:calc(env(safe-area-inset-top) + 10px); right:calc(env(safe-area-inset-right) + 10px);
              background:rgba(0,0,0,.5); color:#fff; border-radius:999px; padding:8px 13px; font-size:16px; line-height:1; }
   .screen.fs .fs-exit, .screen.fs-native .fs-exit { display:block; }
   body.fs-on { overflow:hidden; }
@@ -55,11 +63,12 @@
 <body>
 <main>
   <header>
-    <h1>C5VRX Bridge</h1>
+    <h1>VRX Bridge</h1>
     <span id="badge" class="badge warn">connecting</span>
   </header>
   <div class="screen" id="screen">
-    <img id="video" alt="Live video from the C5VRX receiver">
+    <video id="video" muted autoplay playsinline webkit-playsinline disablepictureinpicture aria-label="Live video from the C5VRX receiver"></video>
+    <canvas id="canvas" width="640" height="480" aria-hidden="true"></canvas>
     <div class="overlay"><span id="ov-left"></span><span id="ov-right"></span></div>
     <button class="fs-exit" id="fs-exit" aria-label="Exit full screen" title="Exit full screen">&#10005;</button>
   </div>
@@ -91,16 +100,86 @@
     <summary>Receiver details</summary>
     <table id="details"></table>
   </details>
-  <footer>Video decoded from a <a href="https://github.com/Twotoz/C5VRX">C5VRX</a> receiver (by Twotoz and the C5VRX contributors) and streamed by an ESP32-S3.</footer>
+  <footer>Video decoded from a <a href="https://github.com/Twotoz/C5VRX">C5VRX</a> receiver (by Twotoz and the C5VRX contributors) and streamed by an ESP32-S3. VRX Bridge is an independent add-on, not part of or endorsed by C5VRX.</footer>
 </main>
 <script>
 (() => {
+  /* Frames: the MJPEG stream (port 81) is read here instead of by an <img>.
+   * Only the newest JPEG is decoded and drawn; frames that arrive meanwhile
+   * are dropped, so the picture never falls behind (Safari's own MJPEG <img>
+   * lagged and stuttered on iPhone). The canvas feeds the video. */
+  const view = document.getElementById('screen');
   const video = document.getElementById('video');
-  const streamUrl = `http://${location.hostname}:81/stream`;
-  let retry = null;
-  const start = () => { video.src = streamUrl + '?t=' + Date.now(); };
-  video.onerror = () => { clearTimeout(retry); retry = setTimeout(start, 1000); };
-  start();
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  let viaVideo = false;
+  if (canvas.captureStream) {
+    try {
+      video.srcObject = canvas.captureStream(30);
+      viaVideo = true;
+    } catch (e) { viaVideo = false; }
+  }
+  const playVideo = () => { if (viaVideo) video.play().catch(() => {}); };
+  video.addEventListener('playing', () => view.classList.add('via-video'));
+  ['pause', 'emptied', 'ended'].forEach(ev => video.addEventListener(ev, () => {
+    view.classList.remove('via-video');
+    setTimeout(playVideo, 300);   /* live: never stays paused (e.g. after the native player closes) */
+  }));
+  video.addEventListener('webkitendfullscreen', playVideo);
+  playVideo();
+
+  let latest = null, decoding = false, shown = 0;
+  function drawNewest() {
+    if (decoding || !latest) return;
+    const blob = new Blob([latest], { type: 'image/jpeg' });
+    latest = null;
+    decoding = true;
+    const done = () => { decoding = false; drawNewest(); };
+    const paint = src => { ctx.drawImage(src, 0, 0, canvas.width, canvas.height); shown++; };
+    if (window.createImageBitmap) {
+      createImageBitmap(blob).then(bmp => { paint(bmp); if (bmp.close) bmp.close(); }).catch(() => {}).finally(done);
+    } else {
+      const url = URL.createObjectURL(blob), img = new Image();
+      img.onload = () => { paint(img); URL.revokeObjectURL(url); done(); };
+      img.onerror = () => { URL.revokeObjectURL(url); done(); };
+      img.src = url;
+    }
+  }
+  const headerEnd = b => {
+    for (let i = 0; i + 3 < b.length; i++)
+      if (b[i] === 13 && b[i + 1] === 10 && b[i + 2] === 13 && b[i + 3] === 10) return i;
+    return -1;
+  };
+  const join = (a, b) => { const c = new Uint8Array(a.length + b.length); c.set(a); c.set(b, a.length); return c; };
+  const text = new TextDecoder();
+  async function readStream() {
+    const res = await fetch(`http://${location.hostname}:81/stream?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok || !res.body) throw new Error('no stream');
+    const reader = res.body.getReader();
+    let buf = new Uint8Array(0);
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error('stream ended');
+      buf = join(buf, value);
+      for (;;) {   /* parts: --boundary, headers, blank line, Content-Length bytes of JPEG */
+        const end = headerEnd(buf);
+        if (end < 0) break;
+        const m = /Content-Length:\s*(\d+)/i.exec(text.decode(buf.subarray(0, end)));
+        const start = end + 4;
+        if (!m) { buf = buf.slice(start); continue; }
+        const n = +m[1];
+        if (buf.length < start + n) break;
+        latest = buf.slice(start, start + n);
+        buf = buf.slice(start + n);
+        drawNewest();
+      }
+      if (buf.length > (1 << 20)) buf = new Uint8Array(0);   /* lost the framing: start over */
+    }
+  }
+  const runStream = () => readStream().catch(() => {}).finally(() => setTimeout(runStream, 1000));
+  runStream();
 
   document.querySelectorAll('button[data-cmd]').forEach(b => {
     b.addEventListener('click', () => fetch('/cmd?c=' + b.dataset.cmd).then(poll).catch(() => {}));
@@ -112,16 +191,26 @@
       .catch(() => { hint.textContent = 'Bridge not reachable.'; }));
   });
   document.getElementById('snap').onclick = () => window.open('/snapshot.jpg?t=' + Date.now(), '_blank');
-  /* Full screen: native where the browser offers it for elements, else the
-   * picture covers the window (iPhone Safari). Exit: the X, Escape, or a
-   * double tap on the picture; native also exits the browser's own way. */
-  const view = document.getElementById('screen');
+  /* Full screen: the browser's own for the picture area where it exists
+   * (desktop, Android, iPad); on iPhone, which has none for page elements,
+   * the native video player like a YouTube video; else the picture covers
+   * the window. Exit: the browser's or player's own way, the X, Escape, or a
+   * double tap on the picture. */
   const nativeEl = () => document.fullscreenElement || document.webkitFullscreenElement;
   const isFull = () => !!nativeEl() || view.classList.contains('fs');
   const coverWindow = () => { view.classList.add('fs'); document.body.classList.add('fs-on'); };
   const enterFull = () => {
     const req = view.requestFullscreen || view.webkitRequestFullscreen;
-    if (!req || !(document.fullscreenEnabled || document.webkitFullscreenEnabled)) return coverWindow();
+    if (!req || !(document.fullscreenEnabled || document.webkitFullscreenEnabled)) {
+      if (viaVideo && video.webkitEnterFullscreen) {
+        try {
+          playVideo();
+          video.webkitEnterFullscreen();
+          return;
+        } catch (e) { /* not ready: cover the window instead */ }
+      }
+      return coverWindow();
+    }
     try {
       const p = req.call(view);
       if (p && p.then) p.then(() => {
@@ -166,6 +255,8 @@
   const table = document.getElementById('details');
   table.innerHTML = rows.map(([k], i) => `<tr><td>${k}</td><td id="r${i}"></td></tr>`).join('');
 
+  let shownRate = 0, shownLast = 0;
+  setInterval(() => { shownRate = shown - shownLast; shownLast = shown; }, 1000);
   function poll() {
     return fetch('/status', { cache: 'no-store' }).then(r => r.json()).then(s => {
       let text = 'NO SIGNAL', cls = 'bad';
@@ -174,7 +265,7 @@
       else if (s.h_locked) { text = 'NO FIELD SYNC'; cls = 'warn'; }
       badge.textContent = text; badge.className = 'badge ' + cls;
       document.getElementById('ov-left').textContent = text;
-      document.getElementById('ov-right').textContent = `${s.fps.toFixed(0)} fps`;
+      document.getElementById('ov-right').textContent = `${shownRate} fps`;
       rows.forEach(([, f], i) => { document.getElementById('r' + i).textContent = f(s); });
       const bf = document.getElementById('btn-filter'), bd = document.getElementById('btn-denoise');
       bf.textContent = s.filter === 'median' ? 'Despeckle on' : 'Despeckle off';

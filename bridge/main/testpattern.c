@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
 /* Synthetic interlaced NTSC/PAL composite source, see testpattern.h. */
 #include "testpattern.h"
 #include <stdlib.h>

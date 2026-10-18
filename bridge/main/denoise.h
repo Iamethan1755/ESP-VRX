@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
 /* Motion-adaptive temporal denoise of 8-bit grayscale frames: a pixel close
  * to the running picture is noise and is averaged with it (noise drops to
  * ~0.6x after a few frames); one that differs more is motion and is taken

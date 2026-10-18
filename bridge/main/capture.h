@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
 /* Capture of the C5's 6-bit video bus with the ESP32-S3 camera port
  * (LCD_CAM in camera mode, sample clock generated internally) into a
  * cyclic DMA ring in internal SRAM. No CPU in the sample path. */

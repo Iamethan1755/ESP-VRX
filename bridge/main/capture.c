@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
 /* ESP32-S3 camera-port capture of the C5VRX video bus, see capture.h.
  *
  * The LCD_CAM camera receiver samples eight data inputs on every edge of

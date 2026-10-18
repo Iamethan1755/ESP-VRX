@@ -1,4 +1,5 @@
-/* Wi-Fi access point, web page and MJPEG stream of the C5VRX Wi-Fi bridge. */
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* Wi-Fi access point, web page and MJPEG stream of VRX Bridge. */
 #pragma once
 #include <stdbool.h>
 #include <stddef.h>

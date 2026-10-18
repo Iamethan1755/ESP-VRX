@@ -1,4 +1,5 @@
-/* C5VRX Wi-Fi bridge for a Seeed XIAO ESP32-S3.
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* VRX Bridge: Wi-Fi video for the C5VRX receiver, on a Seeed XIAO ESP32-S3.
  *
  * Reads the 6-bit digital video bus of a C5VRX receiver (XIAO ESP32-C5,
  * DAC pins D4..D9) with the S3 camera port, locks to the composite sync,

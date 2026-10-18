@@ -1,4 +1,5 @@
-"""PC companion for the C5VRX Wi-Fi bridge (XIAO ESP32-S3) over its USB console.
+# SPDX-License-Identifier: GPL-3.0-only
+"""PC companion for VRX Bridge (Wi-Fi video for the C5VRX receiver, XIAO ESP32-S3) over its USB console.
 
   python tools/bridge_tool.py status            one status line
   python tools/bridge_tool.py raw               raw bus samples -> captures/raw_*.bin + .png plots

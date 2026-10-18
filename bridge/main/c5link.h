@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
 /* Link to the C5VRX receiver: its on-screen menu, channel, band and scan
  * keys as "<k>" frames on a UART TX line (S3 GPIO7 / D8 -> 1 kOhm -> C5
  * GPIO2, the MTMS pad on the back of the XIAO ESP32-C5), driven open drain:

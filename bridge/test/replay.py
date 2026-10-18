@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-only
 """Replay a raw C5 recording (tools/bridge_tool.py rawlong) through the decoder.
 
 Usage: python bridge/test/replay.py captures/rawlong_*_20MHz.bin [FS_HZ] [median|smooth]

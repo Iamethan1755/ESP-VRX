@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
 /* Motion-adaptive temporal denoise, see denoise.h. */
 #include "denoise.h"
 #include <string.h>

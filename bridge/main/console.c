@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
 /* USB serial console: one key per command, no Enter needed.
  * Binary data (raw samples, JPEG) goes out base64-encoded between BEGIN/END
  * lines with a CRC-32, read by tools/bridge_tool.py. USB video ('V') sends
@@ -18,7 +19,7 @@
 #include "stream.h"
 
 static const char *HELP =
-    "C5VRX Wi-Fi bridge keys:\n"
+    "VRX Bridge keys:\n"
     "  s  status            t  next source (C5 / NTSC test / PAL test)\n"
     "  c  levels auto/std   j l  picture left/right   i k  picture up/down\n"
     "  f  despeckle median/smooth                     d  denoise on/off\n"

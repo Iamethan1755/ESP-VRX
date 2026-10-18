@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-only
 """Build and run the bridge's host tests with Zig's C compiler (pip install ziglang).
 
 Usage: python bridge/test/run_host_tests.py

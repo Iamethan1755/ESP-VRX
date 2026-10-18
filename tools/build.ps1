@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-only
 <#
 .SYNOPSIS
   Build, flash and monitor the C5 receiver and the S3 Wi-Fi bridge.

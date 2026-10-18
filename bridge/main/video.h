@@ -1,4 +1,5 @@
-/* Composite video decoder for the C5VRX Wi-Fi bridge.
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* Composite video decoder for VRX Bridge.
  *
  * Input: a power-of-two ring of 6-bit composite samples (the C5VRX DAC code,
  * bits 0..5 of each byte) written by DMA or by the test-pattern generator.

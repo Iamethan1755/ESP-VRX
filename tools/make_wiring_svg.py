@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-only
 """Generate docs/wiring.svg: how the XIAO ESP32-C5 receiver and the XIAO
 ESP32-S3 Wi-Fi bridge are wired. Edit the tables below and rerun:
 
@@ -114,7 +115,7 @@ def resistor_h(x1, x2, y, colour, label):
 
 # ---- background and title ------------------------------------------------
 add(f'<rect width="{W}" height="{H}" fill="#FFFFFF"/>')
-text(40, 48, "C5VRX Wi-Fi bridge: wiring", 28, "700")
+text(40, 48, "VRX Bridge: wiring", 28, "700")
 text(40, 74, "XIAO ESP32-C5 (5.8 GHz receiver, C5VRX) to XIAO ESP32-S3 (Wi-Fi bridge). "
              "Seven wires carry the video; one optional wire lets the phone change channels.", 15, fill=MUTED)
 
@@ -255,7 +256,7 @@ for i, r in enumerate(rules):
     cont = r.startswith("  ")   # continuation of the previous bullet: indent under its text
     text(NX + (12 if cont else 0), ROW3 + 16 + i * 23, r.strip() if cont else "•  " + r, 14, fill=INK)
 
-text(W - 30, H - 16, "c5vrx-wifi · tools/make_wiring_svg.py · C5VRX by Twotoz and the C5VRX contributors",
+text(W - 30, H - 16, "VRX Bridge · tools/make_wiring_svg.py · C5VRX by Twotoz and the C5VRX contributors",
      11, fill=MUTED, anchor="end")
 
 svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}" '

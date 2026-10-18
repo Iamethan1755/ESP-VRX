@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
 /* UART key link to the C5VRX receiver, see c5link.h. */
 #include "c5link.h"
 #include <stdio.h>

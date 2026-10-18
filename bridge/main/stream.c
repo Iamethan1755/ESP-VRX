@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
 /* Wi-Fi access point, web page and MJPEG stream, see stream.h.
  *
  * Port 80: the page, /status (JSON), /cmd?c=X (picture commands) and
@@ -30,7 +31,7 @@
 #include "nvs_flash.h"
 
 #define JPEG_MAX (96 * 1024)
-#define BOUNDARY "c5vrxframe"
+#define BOUNDARY "vrxframe"
 #define MAX_VIEWERS 3
 
 static const char *TAG = "stream";
@@ -255,7 +256,7 @@ static esp_err_t snapshot_get(httpd_req_t *req)
         err = httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "no frame yet");
     } else {
         httpd_resp_set_type(req, "image/jpeg");
-        httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=c5vrx.jpg");
+        httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=vrx-bridge.jpg");
         err = httpd_resp_send(req, (const char *)buf, (ssize_t)n);
     }
     free(buf);
@@ -540,10 +541,10 @@ static esp_err_t wifi_start(void)
     esp_wifi_set_max_tx_power((int8_t)(CONFIG_BRIDGE_WIFI_TX_POWER_DBM * 4));
     ESP_LOGI(TAG, "Wi-Fi \"%s\" on channel %d: open http://192.168.4.1/", ssid, CONFIG_BRIDGE_WIFI_CHANNEL);
 
-    /* http://c5vrx-bridge.local/ besides 192.168.4.1 */
+    /* http://vrx-bridge.local/ besides 192.168.4.1 */
     if (mdns_init() == ESP_OK) {
-        mdns_hostname_set("c5vrx-bridge");
-        mdns_instance_name_set("C5VRX Wi-Fi bridge");
+        mdns_hostname_set("vrx-bridge");
+        mdns_instance_name_set("VRX Bridge");
         mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
     } else {
         ESP_LOGW(TAG, "mDNS unavailable: use the IP address");

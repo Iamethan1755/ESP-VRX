@@ -1,4 +1,5 @@
-/* Composite video decoder for the C5VRX Wi-Fi bridge: line PLL on the sync
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* Composite video decoder for VRX Bridge: line PLL on the sync
  * edges, vertical sync from broad pulses, one grayscale frame per field.
  * See video.h. */
 #include "video.h"

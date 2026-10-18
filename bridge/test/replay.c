@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
 /* Replay a raw recording of the C5 bus (bridge_tool.py rawlong) through the
  * bridge's decoder: prints lock and field events with their time and saves
  * the drawn fields. Build and run: python bridge/test/replay.py FILE.bin
