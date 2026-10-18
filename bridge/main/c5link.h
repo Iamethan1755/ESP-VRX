@@ -1,7 +1,9 @@
 /* Link to the C5VRX receiver: its on-screen menu, channel, band and scan
  * keys as "<k>" frames on a UART TX line (S3 GPIO7 / D8 -> 1 kOhm -> C5
- * GPIO2, the MTMS pad on the back of the XIAO ESP32-C5). The receiving
- * side is in receiver/main/console.c on the wifi-bridge branch. */
+ * GPIO2, the MTMS pad on the back of the XIAO ESP32-C5), driven open drain:
+ * the C5's pull-up makes the idle high, so an unpowered C5 gets no current
+ * from it. The receiving side is in receiver/main/console.c on the
+ * wifi-bridge branch. */
 #pragma once
 #include <stdbool.h>
 #include <stddef.h>

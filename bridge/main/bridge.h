@@ -40,4 +40,9 @@ void bridge_get_status(bridge_status_t *out);
 int bridge_status_json(char *buf, size_t len);
 /* Copies up to `max` of the most recent bus samples; returns the count. */
 uint32_t bridge_snapshot_raw(uint8_t *dst, uint32_t max, uint32_t *fs_hz);
+/* Contiguous raw recording of n samples from the C5 input (decoding pauses
+ * meanwhile); returns n, or 0 if the source is not the C5 or data was lost. */
+uint32_t bridge_record_raw(uint8_t *dst, uint32_t n, uint32_t *fs_hz);
 const char *bridge_source_name(bridge_source_t s);
+/* Why the S3 last started: power-on, crash, watchdog, brownout, ... */
+const char *bridge_reset_reason(void);

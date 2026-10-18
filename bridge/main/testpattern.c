@@ -44,7 +44,16 @@ static void line_kind(const testpattern_t *t, int L, half_t *l, half_t *r, int *
 
 bool testpattern_init(testpattern_t *t, uint8_t *ring, uint32_t ring_size, uint32_t fs_hz, bool pal)
 {
+    return testpattern_init_levels(t, ring, ring_size, fs_hz, pal, TP_SYNC, TP_BLANK, TP_WHITE, false);
+}
+
+bool testpattern_init_levels(testpattern_t *t, uint8_t *ring, uint32_t ring_size, uint32_t fs_hz, bool pal,
+                             int sync, int blank, int white, bool dark_left)
+{
     memset(t, 0, sizeof *t);
+    t->lv_sync = sync;
+    t->lv_blank = blank;
+    t->lv_white = white;
     t->ring = ring;
     t->mask = ring_size - 1;
     t->fs_hz = fs_hz;
@@ -66,23 +75,24 @@ bool testpattern_init(testpattern_t *t, uint8_t *ring, uint32_t ring_size, uint3
             testpattern_free(t);
             return false;
         }
-        memset(*tpl[k], TP_BLANK, (size_t)n);
+        memset(*tpl[k], (uint8_t)blank, (size_t)n);
     }
     const int half = t->half;
     const int hs = us_n(fs_hz, 4.7), eq = us_n(fs_hz, pal ? 2.35 : 2.3);
 
-    fill(t->t_eq, 0, eq, TP_SYNC);
-    fill(t->t_eq, half, half + eq, TP_SYNC);
-    fill(t->t_broad, 0, half - hs, TP_SYNC);
-    fill(t->t_broad, half, 2 * half - hs, TP_SYNC);
-    fill(t->t_blank, 0, hs, TP_SYNC);
+    fill(t->t_eq, 0, eq, (uint8_t)sync);
+    fill(t->t_eq, half, half + eq, (uint8_t)sync);
+    fill(t->t_broad, 0, half - hs, (uint8_t)sync);
+    fill(t->t_broad, half, 2 * half - hs, (uint8_t)sync);
+    fill(t->t_blank, 0, hs, (uint8_t)sync);
 
     memcpy(t->t_bars, t->t_blank, (size_t)n);
     memcpy(t->t_ramp, t->t_blank, (size_t)n);
     for (int x = 0; x < t->x_len; x++) {
-        int bar = x * 8 / t->x_len;                       /* white .. black in 8 steps */
-        t->t_bars[t->x0 + x] = (uint8_t)(TP_WHITE - (TP_WHITE - TP_BLANK) * bar / 7);
-        t->t_ramp[t->x0 + x] = (uint8_t)(TP_BLANK + (TP_WHITE - TP_BLANK) * x / (t->x_len - 1));
+        const int xx = dark_left ? t->x_len - 1 - x : x;
+        int bar = xx * 8 / t->x_len;                      /* white .. black in 8 steps */
+        t->t_bars[t->x0 + x] = (uint8_t)(white - (white - blank) * bar / 7);
+        t->t_ramp[t->x0 + x] = (uint8_t)(blank + (white - blank) * xx / (t->x_len - 1));
     }
     return true;
 }
@@ -126,9 +136,9 @@ static const uint8_t *picture_line(testpattern_t *t, int row, uint32_t len)
     int phase = (int)(t->field * 2u % (uint32_t)(2 * travel));
     int bx = t->x0 + (phase < travel ? phase : 2 * travel - phase);
     bool edge = row == 40 || row == 40 + box_rows - 1;
-    fill(t->pic, bx, bx + box_w, edge ? TP_BLANK : TP_WHITE);
-    fill(t->pic, bx, bx + 2, TP_BLANK);
-    fill(t->pic, bx + box_w - 2, bx + box_w, TP_BLANK);
+    fill(t->pic, bx, bx + box_w, (uint8_t)(edge ? t->lv_blank : t->lv_white));
+    fill(t->pic, bx, bx + 2, (uint8_t)t->lv_blank);
+    fill(t->pic, bx + box_w - 2, bx + box_w, (uint8_t)t->lv_blank);
     return t->pic;
 }
 
@@ -161,12 +171,18 @@ static void emit_line(testpattern_t *t)
         memcpy(t->buf + t->half, b + t->half, len - (uint32_t)t->half);
         src = t->buf;
     }
-    if (t->noise > 0) {
+    if (t->noise > 0 || t->clicks > 0) {
         if (src != t->buf) memcpy(t->buf, src, len);
         const int span = 2 * t->noise + 1;
         for (uint32_t k = 0; k < len; k++) {
             t->rng = t->rng * 1664525u + 1013904223u;
-            int v = t->buf[k] + (int)((t->rng >> 16) % (uint32_t)span) - t->noise;
+            int v = t->buf[k];
+            if (t->noise > 0) v += (int)((t->rng >> 16) % (uint32_t)span) - t->noise;
+            if (t->clicks > 0 && (t->rng >> 8) % 10000u < (uint32_t)t->clicks) {
+                /* FM click: the phase slips, the output spikes for 1-2 samples */
+                v = (t->rng & 1u) ? 63 : 0;
+                if ((t->rng & 2u) && k + 1 < len) t->buf[++k] = (uint8_t)v;
+            }
             t->buf[k] = (uint8_t)(v < 0 ? 0 : v > 63 ? 63 : v);
         }
         src = t->buf;

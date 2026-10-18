@@ -2,9 +2,11 @@
 
   python tools/bridge_tool.py status            one status line
   python tools/bridge_tool.py raw               raw bus samples -> captures/raw_*.bin + .png plots
+  python tools/bridge_tool.py rawlong           ~6 contiguous fields (2 MiB) -> captures/rawlong_*.bin
   python tools/bridge_tool.py frame             current JPEG -> captures/frame_*.jpg
   python tools/bridge_tool.py selftest          loopback test (NOTHING connected to D0..D5!)
   python tools/bridge_tool.py keys tc           send console keys (t source, c levels, j/l/i/k shift)
+  python tools/bridge_tool.py live              live video over USB at http://127.0.0.1:8090/ (--http PORT)
   python tools/bridge_tool.py ports             list serial ports
 
 --port COM7 picks the port; otherwise the tool asks every Espressif USB port
@@ -92,6 +94,193 @@ def fetch_block(s: serial.Serial, key: bytes, tag: str, timeout: float = 20.0) -
     return meta, data
 
 
+def fetch_binary(s: serial.Serial, key: bytes, tag: str, timeout: float = 40.0) -> tuple[dict, bytes]:
+    """A raw binary block: a line '<tag> n=<bytes> ... crc=<crc32>', then the bytes."""
+    s.reset_input_buffer()
+    s.write(key)
+    buf, head, end = b"", None, time.time() + timeout
+    while time.time() < end:
+        buf += s.read(max(1, s.in_waiting))
+        if head is None:
+            e = buf.find(f"{tag} ERROR".encode())
+            if e >= 0:
+                sys.exit(buf[e:].split(b"\n", 1)[0].decode(errors="replace").strip())
+            i = buf.find(f"{tag} n=".encode())
+            j = buf.find(b"\n", i) if i >= 0 else -1
+            if j < 0:
+                continue
+            head = dict(kv.split("=", 1) for kv in buf[i:j].decode(errors="replace").split()[1:] if "=" in kv)
+            buf = buf[j + 1:]
+        n = int(head["n"])
+        if len(buf) >= n:
+            data = buf[:n]
+            if f"{zlib.crc32(data):08x}" != head.get("crc"):
+                sys.exit(f"{tag}: CRC mismatch, try again")
+            return head, data
+    sys.exit(f"no complete {tag} block received")
+
+
+LIVE_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bridge USB Live</title>
+<style>
+  :root { --bg:#0b0d10; --panel:#161a20; --text:#e8eaed; --muted:#8b93a0; --ok:#3fb950; --btn:#232a33; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.4 system-ui, Segoe UI, sans-serif; }
+  main { max-width:960px; margin:0 auto; padding:12px 16px 20px; }
+  img { width:100%; aspect-ratio:4/3; background:#000; border-radius:10px; display:block; }
+  .row { display:flex; gap:8px; margin:10px 0; }
+  button { flex:1; background:var(--btn); color:var(--text); border:0; border-radius:8px; padding:10px 6px; font:inherit; font-weight:600; }
+  button.on { box-shadow:inset 0 -3px 0 var(--ok); }
+  #info { font:12px/1.5 ui-monospace, Consolas, monospace; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <img src="/stream" alt="Live video from the bridge over USB">
+  <div class="row">
+    <button id="f" title="Median filter against the FM speckles">Despeckle</button>
+    <button id="d" title="Average still areas over frames">Denoise</button>
+  </div>
+  <div id="info">waiting for the bridge...</div>
+</main>
+<script>
+  const info = document.getElementById('info');
+  const bf = document.getElementById('f'), bd = document.getElementById('d');
+  [bf, bd].forEach(b => b.onclick = () => fetch('/key?k=' + b.id, { method: 'POST' }));
+  setInterval(() => fetch('/info', { cache: 'no-store' }).then(r => r.json()).then(s => {
+    info.textContent = s.text;
+    bf.textContent = s.filter === 'median' ? 'Despeckle on' : 'Despeckle off';
+    bf.classList.toggle('on', s.filter === 'median');
+    bd.textContent = s.denoise === '1' ? 'Denoise on' : 'Denoise off';
+    bd.classList.toggle('on', s.denoise === '1');
+  }).catch(() => { info.textContent = 'tool not running'; }), 1000);
+</script>
+</body>
+</html>
+"""
+LIVE_KEYS = b"fd"   # keys the live page may send
+
+
+def live(s: serial.Serial, http_port: int) -> None:
+    """USB video ('V'): parse the bridge's binary JPEG frames and serve them
+    as MJPEG on localhost, with its STATUS line and two filter buttons."""
+    import http.server
+    import json
+    import threading
+
+    cond = threading.Condition()
+    st = {"jpeg": b"", "seq": 0, "times": [], "bad": 0, "status": {}}
+    write_lock = threading.Lock()
+
+    def send(key: bytes) -> None:
+        with write_lock:
+            s.write(key)
+
+    def reader() -> None:
+        buf = b""
+        while True:
+            buf += s.read(max(1, s.in_waiting))
+            while True:
+                i = buf.find(b"USBJPEG n=")
+                text_end = i if i >= 0 else buf.rfind(b"\n") + 1
+                for line in buf[:text_end].split(b"\n"):
+                    if line.startswith(b"STATUS "):
+                        kv = dict(p.split("=", 1) for p in line.decode(errors="replace").split()[1:] if "=" in p)
+                        with cond:
+                            st["status"] = kv
+                if i < 0:
+                    buf = buf[text_end:]
+                    break
+                e = buf.find(b"\n", i)
+                if e < 0:
+                    buf = buf[i:]
+                    break
+                m = re.match(rb"USBJPEG n=(\d+) crc=([0-9a-f]{8})", buf[i:e])
+                n = int(m.group(1)) if m else -1
+                if not 0 < n <= 200000:
+                    buf = buf[i + 8:]          # damaged header: look for the next one
+                    continue
+                if len(buf) < e + 1 + n:
+                    buf = buf[i:]
+                    break
+                data, buf = buf[e + 1:e + 1 + n], buf[e + 1 + n:]
+                with cond:
+                    if f"{zlib.crc32(data):08x}" == m.group(2).decode():
+                        now = time.time()
+                        st["times"] = [t for t in st["times"] if now - t < 3] + [now]
+                        st["jpeg"], st["seq"] = data, st["seq"] + 1
+                        cond.notify_all()
+                    else:
+                        st["bad"] += 1
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args) -> None:
+            pass
+
+        def reply(self, body: bytes, kind: str) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", kind)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self) -> None:
+            if self.path == "/":
+                self.reply(LIVE_PAGE.encode(), "text/html; charset=utf-8")
+            elif self.path.startswith("/info"):
+                with cond:
+                    t, kv, n, bad = st["times"], dict(st["status"]), len(st["jpeg"]), st["bad"]
+                fps = (len(t) - 1) / (t[-1] - t[0]) if len(t) > 1 and t[-1] > t[0] else 0.0
+                text = (f"USB {fps:.1f} fps, {n / 1024:.1f} KB/frame, {bad} damaged | "
+                        f"lock h={kv.get('h_lock', '?')} v={kv.get('v_lock', '?')} {kv.get('std', '')} "
+                        f"{kv.get('lines/field', '?')} lines | Wi-Fi stream {kv.get('fps', '?')} fps | "
+                        f"overruns {kv.get('overruns', '?')} | load {kv.get('load', '?')}")
+                body = json.dumps({"text": text, "filter": kv.get("filter"), "denoise": kv.get("denoise")})
+                self.reply(body.encode(), "application/json")
+            elif self.path.startswith("/stream"):
+                self.send_response(200)
+                self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                seq = -1
+                try:
+                    while True:
+                        with cond:
+                            cond.wait_for(lambda: st["seq"] != seq, timeout=5)
+                            seq, data = st["seq"], st["jpeg"]
+                        if data:
+                            self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                                             + str(len(data)).encode() + b"\r\n\r\n" + data + b"\r\n")
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                    pass
+            else:
+                self.send_error(404)
+
+        def do_POST(self) -> None:
+            k = self.path.partition("k=")[2][:1].encode()
+            if k and k in LIVE_KEYS:
+                send(k)
+                self.reply(b"ok", "text/plain")
+            else:
+                self.send_error(400)
+
+    send(b"V")
+    threading.Thread(target=reader, daemon=True).start()
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", http_port), Handler)
+    server.daemon_threads = True
+    print(f"live view: http://127.0.0.1:{http_port}/  (Ctrl+C stops; the COM port is busy meanwhile)", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        send(b"v")
+
+
 def plot_raw(data: bytes, fs: int, png: pathlib.Path) -> None:
     try:
         import numpy as np
@@ -137,9 +326,10 @@ def plot_raw(data: bytes, fs: int, png: pathlib.Path) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["status", "raw", "frame", "selftest", "keys", "ports"])
+    ap.add_argument("command", choices=["status", "raw", "rawlong", "frame", "selftest", "keys", "live", "ports"])
     ap.add_argument("keys", nargs="?", default="", help="for 'keys': characters to send")
     ap.add_argument("--port")
+    ap.add_argument("--http", type=int, default=8090, help="for 'live': local web port")
     a = ap.parse_args()
 
     if a.command == "ports":
@@ -178,6 +368,18 @@ def main() -> int:
         s.write(b"y")
         lines = read_until(s, lambda l: l.startswith("SELFTEST") and ("PASS" in l or "FAIL" in l), 10)
         print(next((l for l in reversed(lines) if l.startswith("SELFTEST")), "no result"))
+    elif a.command == "rawlong":
+        s.write(b"v")                     # USB video off, it would interleave
+        read_until(s, lambda l: False, 0.5)
+        meta, data = fetch_binary(s, b"W", "RAWLONG")
+        fs = int(meta["fs"])
+        OUT_DIR.mkdir(exist_ok=True)
+        out = OUT_DIR / f"rawlong_{stamp}_{fs // 1000000}MHz.bin"
+        out.write_bytes(data)
+        print(f"{len(data)} samples at {fs / 1e6:g} MS/s ({len(data) / fs * 1e3:.0f} ms) -> {out}")
+        print(f"replay: bridge/test/replay.exe {out} {fs}")
+    elif a.command == "live":
+        live(s, a.http)
     elif a.command == "keys":
         for ch in a.keys:
             s.write(ch.encode())

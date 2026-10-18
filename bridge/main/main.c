@@ -12,9 +12,11 @@
 #include "bridge.h"
 #include "c5link.h"
 #include "capture.h"
+#include "homewifi.h"
 #include "console.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -36,6 +38,15 @@ static volatile uint32_t s_write_pos;
 static uint32_t s_capture_gen;      /* capture restart the decoder is synchronised to */
 static int64_t s_last_submit, s_tp_t0;
 
+/* Long raw recording (console 'W'): the decoder task copies the ring to
+ * s_rec instead of decoding until it is full, then wakes s_rec_waiter.
+ * The console task (core 0) fills in s_rec* and then raises s_rec_active
+ * for the decoder (core 1): fences keep those stores in that order. */
+static uint8_t *s_rec;
+static uint32_t s_rec_len, s_rec_max, s_rec_rp;
+static volatile bool s_rec_active;
+static TaskHandle_t s_rec_waiter;
+
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 static video_stats_t s_vstats;
 static float s_msps, s_load;
@@ -44,6 +55,20 @@ static uint32_t s_max_pass, s_max_gap, s_max_line, s_max_line_kind;
 const char *bridge_source_name(bridge_source_t s)
 {
     return s == SOURCE_LIVE ? "c5" : s == SOURCE_TEST_NTSC ? "test-ntsc" : "test-pal";
+}
+
+const char *bridge_reset_reason(void)
+{
+    switch (esp_reset_reason()) {
+    case ESP_RST_POWERON: return "power-on";
+    case ESP_RST_SW: return "software";
+    case ESP_RST_PANIC: return "crash";
+    case ESP_RST_INT_WDT: case ESP_RST_TASK_WDT: case ESP_RST_WDT: return "watchdog";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_USB: return "usb";
+    case ESP_RST_EXT: return "external";
+    default: return "other";
+    }
 }
 
 /* Decoder task: a field is done. Hand it to the JPEG encoder at most
@@ -95,13 +120,17 @@ static void apply_command(char c)
     case 'l': video_shift_h(&s_video, -2); break;
     case 'i': video_shift_v(&s_video, 1); break;
     case 'k': video_shift_v(&s_video, -1); break;
+    case 'f':
+        video_set_filter(&s_video, s_video.filter == VIDEO_FILTER_MEDIAN ? VIDEO_FILTER_SMOOTH : VIDEO_FILTER_MEDIAN);
+        break;
+    case 'd': stream_set_denoise(!stream_denoise()); break;
     default: break;
     }
 }
 
 bool bridge_command(char c)
 {
-    if (!c || !strchr("tcjlik", c)) return false;
+    if (!c || !strchr("tcjlikfd", c)) return false;
     return xQueueSend(s_cmds, &c, 0) == pdTRUE;
 }
 
@@ -134,6 +163,35 @@ static void decode_task(void *arg)
             wp = s_tp.pos;
         }
         s_write_pos = wp;
+
+        if (s_rec_active) {
+            __atomic_thread_fence(__ATOMIC_ACQUIRE);   /* s_rec* as set before s_rec_active */
+            bool done = s_source != SOURCE_LIVE;
+            uint32_t avail = wp - s_rec_rp;
+            if (avail > CAPTURE_RING_BYTES - 4096) {
+                s_rec_len = 0;   /* the DMA overtook us: data lost */
+                done = true;
+            }
+            if (!done) {
+                if (avail > s_rec_max - s_rec_len) avail = s_rec_max - s_rec_len;
+                const uint8_t *ring = capture_ring();
+                const uint32_t start = s_rec_rp & (CAPTURE_RING_BYTES - 1);
+                const uint32_t first = CAPTURE_RING_BYTES - start < avail ? CAPTURE_RING_BYTES - start : avail;
+                memcpy(s_rec + s_rec_len, ring + start, first);
+                memcpy(s_rec + s_rec_len + first, ring, avail - first);
+                s_rec_len += avail;
+                s_rec_rp += avail;
+                done = s_rec_len >= s_rec_max;
+            }
+            if (done) {
+                s_rec_active = false;
+                video_reset(&s_video, wp);   /* the decoder skipped this stretch */
+                window_wp = wp;
+                xTaskNotifyGive(s_rec_waiter);
+            }
+            ulTaskNotifyTake(pdTRUE, 1);
+            continue;
+        }
 
         const int64_t a = esp_timer_get_time();
         video_process(&s_video, wp);
@@ -188,24 +246,49 @@ void bridge_get_status(bridge_status_t *out)
     out->uptime_s = (uint32_t)(esp_timer_get_time() / 1000000);
 }
 
+/* JSON string body: quotes, backslashes and control characters escaped. */
+static void json_escape(char *dst, size_t len, const char *src)
+{
+    size_t o = 0;
+    for (; *src && o + 7 < len; src++) {
+        const unsigned char c = (unsigned char)*src;
+        if (c == '"' || c == '\\') {
+            dst[o++] = '\\';
+            dst[o++] = (char)c;
+        } else if (c < 0x20) {
+            o += (size_t)snprintf(dst + o, len - o, "\\u%04x", c);
+        } else {
+            dst[o++] = (char)c;
+        }
+    }
+    dst[o] = 0;
+}
+
 int bridge_status_json(char *buf, size_t len)
 {
     bridge_status_t s;
     bridge_get_status(&s);
     const video_stats_t *v = &s.video;
+    char home_ssid[33], home_ip[16], home_ssid_json[200];
+    homewifi_info(home_ssid, sizeof home_ssid, home_ip, sizeof home_ip);
+    json_escape(home_ssid_json, sizeof home_ssid_json, home_ssid);
     int n = snprintf(buf, len,
         "{\"source\":\"%s\",\"capture_ok\":%s,\"h_locked\":%s,\"v_locked\":%s,\"std\":\"%s\","
         "\"lines_per_field\":%d,\"line_us\":%.3f,\"sync\":%.1f,\"blank\":%.1f,\"black\":%.1f,\"white\":%.1f,"
-        "\"levels\":\"%s\",\"fields\":%lu,\"overruns\":%lu,\"lock_losses\":%lu,\"h_offset_us\":%.1f,"
+        "\"levels\":\"%s\",\"filter\":\"%s\",\"denoise\":%s,"
+        "\"fields\":%lu,\"overruns\":%lu,\"lock_losses\":%lu,\"h_offset_us\":%.1f,"
         "\"v_offset\":%d,\"msps\":%.2f,\"load\":%.2f,\"fps\":%.1f,\"jpeg_bytes\":%lu,\"frames\":%lu,"
-        "\"clients\":%d,\"stations\":%d,\"c5_keys\":%lu,\"heap_int\":%lu,\"heap_psram\":%lu,\"uptime\":%lu}",
+        "\"clients\":%d,\"stations\":%d,\"c5_keys\":%lu,\"heap_int\":%lu,\"heap_psram\":%lu,\"uptime\":%lu,"
+        "\"home_state\":\"%s\",\"home_ssid\":\"%s\",\"home_ip\":\"%s\",\"home_hint\":\"%s\",\"reset\":\"%s\"}",
         bridge_source_name(s.source), s.capture_ok ? "true" : "false", v->h_locked ? "true" : "false",
         v->v_locked ? "true" : "false", v->std == VIDEO_STD_PAL ? "PAL" : "NTSC", v->lines_per_field, v->line_us,
         v->sync_level, v->blank_level, v->black_level, v->white_level,
-        v->levels == VIDEO_LEVELS_AUTO ? "auto" : "std", (unsigned long)v->fields, (unsigned long)v->overruns,
+        v->levels == VIDEO_LEVELS_AUTO ? "auto" : "std", v->filter == VIDEO_FILTER_MEDIAN ? "median" : "smooth",
+        stream_denoise() ? "true" : "false", (unsigned long)v->fields, (unsigned long)v->overruns,
         (unsigned long)v->lock_losses, v->h_offset_tenths_us / 10.0, v->v_offset_lines, s.sample_msps,
         s.decode_load, s.fps, (unsigned long)s.jpeg_bytes, (unsigned long)s.jpeg_frames, s.clients, s.stations, (unsigned long)s.c5_keys,
-        (unsigned long)s.heap_internal, (unsigned long)s.heap_psram, (unsigned long)s.uptime_s);
+        (unsigned long)s.heap_internal, (unsigned long)s.heap_psram, (unsigned long)s.uptime_s,
+        homewifi_state_name(homewifi_state()), home_ssid_json, home_ip, homewifi_hint(), bridge_reset_reason());
     return n < (int)len ? n : (int)len - 1;
 }
 
@@ -222,6 +305,27 @@ uint32_t bridge_snapshot_raw(uint8_t *dst, uint32_t max, uint32_t *fs_hz)
     memcpy(dst + first, ring, n - first);
     *fs_hz = s_fs_hz;
     return n;
+}
+
+uint32_t bridge_record_raw(uint8_t *dst, uint32_t n, uint32_t *fs_hz)
+{
+    if (s_source != SOURCE_LIVE || s_rec_active) return 0;
+    s_rec = dst;
+    s_rec_max = n;
+    s_rec_len = 0;
+    s_rec_rp = s_write_pos;
+    s_rec_waiter = xTaskGetCurrentTaskHandle();
+    ulTaskNotifyTake(pdTRUE, 0);
+    __atomic_thread_fence(__ATOMIC_RELEASE);   /* the decoder sees all of the above first */
+    s_rec_active = true;
+    /* 2 MiB at 20 MS/s is 105 ms */
+    if (!ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000))) {
+        s_rec_active = false;
+        vTaskDelay(pdMS_TO_TICKS(20));   /* let a copy in progress finish */
+        return 0;
+    }
+    *fs_hz = s_fs_hz;
+    return s_rec_len;
 }
 
 static uint8_t *alloc_frame(void)

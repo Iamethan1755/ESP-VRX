@@ -23,10 +23,11 @@ menu "C5VRX Wi-Fi bridge"
 
     choice BRIDGE_SAMPLE_RATE
         prompt "Video bus sample rate"
-        default BRIDGE_SAMPLE_10MHZ
+        default BRIDGE_SAMPLE_20MHZ
         help
             The C5 outputs 20 MS/s of unique samples (each repeated at 40 MHz).
-            10 MHz is plenty for 320 pixels across and halves memory traffic.
+            20 MHz sees every one, so the 5-tap median despeckle filter gets
+            enough samples per pixel; 10 MHz halves memory traffic and load.
         config BRIDGE_SAMPLE_10MHZ
             bool "10 MHz"
         config BRIDGE_SAMPLE_20MHZ

@@ -21,9 +21,25 @@
 static int32_t us_q8(uint32_t fs_hz, double us) { return (int32_t)(us * fs_hz / 1e6 * 256.0 + 0.5); }
 static int us_n(uint32_t fs_hz, double us) { return (int)(us * fs_hz / 1e6 + 0.5); }
 
-static inline bool below(const video_t *v, int64_t pos)
+/* Sync detection works on the signal averaged over c_box samples (0.4 us),
+ * centred on the position. On the C5 the sync tip is only ~6 codes below
+ * blanking with ~3 codes of noise per sample: 7 % of sync-tip samples lie
+ * above the slicer (board recording), so single samples chopped every line
+ * sync into short runs and the line lock kept dropping. The average has a
+ * third of the noise and still follows a 4.7 us sync edge to the sample. */
+static inline int32_t box_sum(const video_t *v, uint32_t centre)
 {
-    return (int32_t)((v->ring[(uint32_t)pos & v->mask] & 63) << 8) < v->slice_q8;
+    const uint8_t *r = v->ring;
+    const uint32_t m = v->mask;
+    uint32_t i = centre - (uint32_t)(v->c_box / 2);
+    int32_t s = 0;
+    for (int j = 0; j < v->c_box; j++, i++) s += r[i & m] & 63;
+    return s;
+}
+
+static inline bool box_below(const video_t *v, int64_t pos)
+{
+    return (box_sum(v, (uint32_t)pos) << 8) < v->slice_q8 * v->c_box;
 }
 
 /* Histogram percentile: smallest bin whose cumulative count reaches pct % of total. */
@@ -37,31 +53,46 @@ static int pct(const uint32_t *h, uint32_t total, uint32_t pct_x10)
     return 63;
 }
 
-/* First falling slice crossing in [from, from + n) whose low run lasts at
- * least min_low samples. The edge is interpolated to 1/256 sample. */
+/* First falling slicer crossing of the averaged signal in [from, from + n)
+ * whose low run lasts at least min_low samples; highs of up to c_box + 2
+ * samples inside the run (FM clicks) are bridged. The edge is interpolated
+ * to 1/256 sample. */
 static VIDEO_HOT bool find_edge(const video_t *v, int64_t from, int n, int min_low,
                                 int64_t *edge_q8, int *run_out)
 {
     const uint8_t *r = v->ring;
     const uint32_t m = v->mask;
-    const int32_t slice = v->slice_q8;
-    uint32_t i = (uint32_t)from;
-    int32_t prev = (r[(i - 1) & m] & 63) << 8;
-    for (int k = 0; k < n; k++, i++) {
-        int32_t cur = (r[i & m] & 63) << 8;
-        if (prev >= slice && cur < slice) {
-            int run = 1;
-            while (run < v->c_max_run && (int32_t)((r[(i + run) & m] & 63) << 8) < slice) run++;
+    const int w = v->c_box;
+    const int32_t thr = v->slice_q8 * w;
+    const int gap_max = w + 2;
+    /* Running box sum: lo is the oldest sample in the window centred on
+     * position from + k - 1, hi the next sample to enter. */
+    uint32_t lo = (uint32_t)from - 1 - (uint32_t)(w / 2), hi = lo + (uint32_t)w;
+    int32_t sum = box_sum(v, (uint32_t)from - 1);
+    int32_t prev = sum << 8;
+    for (int k = 0; k < n; k++, lo++, hi++) {
+        sum += (r[hi & m] & 63) - (r[lo & m] & 63);
+        const int32_t cur = sum << 8;
+        if (prev >= thr && cur < thr) {
+            int run = 1, len = 1, gap = 0;
+            int32_t s = sum;
+            for (uint32_t a = lo + 1, b = hi + 1; len < v->c_max_run; a++, b++) {
+                s += (r[b & m] & 63) - (r[a & m] & 63);
+                len++;
+                if ((s << 8) < thr) {
+                    run = len;
+                    gap = 0;
+                } else if (++gap > gap_max) {
+                    break;
+                }
+            }
             if (run >= min_low) {
-                int32_t frac = ((prev - slice) << 8) / (prev - cur);
-                *edge_q8 = ((from + k - 1) << 8) + frac;
+                /* an even-length window centred on c spans c - w/2 .. c + w/2 - 1 */
+                *edge_q8 = ((from + k - 1) << 8) + ((prev - thr) << 8) / (prev - cur) + (w % 2 ? 0 : 128);
                 *run_out = run;
                 return true;
             }
-            /* Short dip (noise, equalising pulse): continue after it. */
-            k += run - 1;
-            i += run - 1;
-            cur = (r[i & m] & 63) << 8;
+            /* Short dip (noise, equalising pulse while unlocked): go on. */
         }
         prev = cur;
     }
@@ -69,42 +100,22 @@ static VIDEO_HOT bool find_edge(const video_t *v, int64_t from, int n, int min_l
 }
 
 /* Same result as find_edge() for syncs of at least min_low samples, but
- * probes only every min_low/2-th sample: a low run that long always covers
- * a probe whose predecessor probe lies before the run. Used while
- * unlocked, where most samples are picture or noise (17x fewer reads at
- * 10 MS/s). The exact crossing is then located between the two probes. */
+ * probes only every min_low/2-th position: a low run that long always covers
+ * a probe whose predecessor probe lies before the run. Used while unlocked,
+ * where most samples are picture or noise. find_edge() then pins down the
+ * crossing between the two probes. */
 static VIDEO_HOT bool find_edge_coarse(const video_t *v, int64_t from, int n, int min_low,
                                        int64_t *edge_q8, int *run_out)
 {
-    const uint8_t *r = v->ring;
-    const uint32_t m = v->mask;
-    const int32_t slice = v->slice_q8;
     const int st = min_low / 2 > 1 ? min_low / 2 : 1;
-    const uint32_t base = (uint32_t)from;
-#define LOW(i) ((int32_t)((r[(base + (uint32_t)(i)) & m] & 63) << 8) < slice)
     /* Crossings only after `from` (k - st >= 0): when called just past a
      * sync edge, `from` lies inside that pulse and must not find it again. */
-    bool prev_low = LOW(0);
+    bool prev_low = box_below(v, from);
     for (int k = st; k < n; k += st) {
-        const bool low = LOW(k);
-        if (low && !prev_low) {
-            int i = k;   /* last high->low crossing in (k - st, k] */
-            while (i > k - st && !(!LOW(i - 1) && LOW(i))) i--;
-            if (i > k - st) {
-                int run = 1;
-                while (run < v->c_max_run && LOW(i + run)) run++;
-                if (run >= min_low) {
-                    const int32_t prev = (r[(base + (uint32_t)i - 1) & m] & 63) << 8;
-                    const int32_t cur = (r[(base + (uint32_t)i) & m] & 63) << 8;
-                    *edge_q8 = ((from + i - 1) << 8) + ((prev - slice) << 8) / (prev - cur);
-                    *run_out = run;
-                    return true;
-                }
-            }
-        }
+        const bool low = box_below(v, from + k);
+        if (low && !prev_low && find_edge(v, from + k - st + 1, st, min_low, edge_q8, run_out)) return true;
         prev_low = low;
     }
-#undef LOW
     return false;
 }
 
@@ -192,9 +203,12 @@ static void field_start(video_t *v, bool vsync)
         } else {
             v->std_votes = 0;
         }
-        v->v_locked = s != VIDEO_STD_UNKNOWN;
-    } else {
-        v->v_locked = false;
+        /* Locked only once the field length matches the standard in use:
+         * the flywheel below expects that standard's field length. */
+        v->v_locked = s != VIDEO_STD_UNKNOWN && s == v->std;
+        v->v_miss = 0;
+    } else if (++v->v_miss > 3) {
+        v->v_locked = false;   /* flywheel: a few missed vertical syncs keep the lock */
     }
     update_mapping(v);
     memset(v->hist, 0, sizeof v->hist);
@@ -206,7 +220,9 @@ static void field_start(video_t *v, bool vsync)
 
 static VIDEO_HOT void render_line(video_t *v, int row)
 {
-    /* Built in internal RAM, then copied in one go: the frame is in PSRAM. */
+    /* Built in internal RAM, then copied in one go: the frame is in PSRAM.
+     * Pass 1 stores each pixel's filtered level as 4x the DAC code (0..252),
+     * pass 2 maps it through the level LUT. */
     uint8_t line[VIDEO_W] __attribute__((aligned(4)));
     const int s = v->std == VIDEO_STD_PAL;
     const int64_t start = v->t_edge + v->h_start[s];
@@ -216,34 +232,47 @@ static VIDEO_HOT void render_line(video_t *v, int row)
     uint32_t pos = pos0;
     const uint8_t *r = v->ring;
     const uint32_t m = v->mask;
-    const uint8_t *lut = v->lut;
-    /* [1 2 1]/4 low-pass: -15 dB at the NTSC colour subcarrier (10 MS/s).
-     * The sum of the three taps (4x the code) indexes the level LUT. */
-    const uint32_t first = base & m, last = first + ((pos0 + step * (VIDEO_W - 1)) >> 8) + 1;
-    if (first >= 1 && last < v->ring_size) {
+    const bool median = v->filter == VIDEO_FILTER_MEDIAN;
+    const int d = v->c_tap;                       /* smoothing taps 0.1 us apart */
+    const uint32_t reach = d > 2 ? (uint32_t)d : 2u;   /* farthest tap of either filter */
+    const uint32_t first = base & m, last = first + ((pos0 + step * (VIDEO_W - 1)) >> 8) + reach;
+    if (first >= reach && last < v->ring_size) {
         const uint8_t *q = r + first;   /* the whole line is contiguous in the ring */
-        for (int x = 0; x < VIDEO_W; x++, pos += step) {
-            const uint8_t *s = q + (pos >> 8);
-            line[x] = lut[s[-1] + 2 * s[0] + s[1]];
+        if (median) {
+            /* Median of three samples two apart: an FM click (1-2 samples)
+             * reaches at most one of them, so it never wins. Half the cost
+             * of a 5-tap median (board: overruns at 20 MS/s with it). */
+            for (int x = 0; x < VIDEO_W; x++, pos += step) {
+                const uint8_t *p = q + (pos >> 8);
+                line[x] = (uint8_t)(video_med3(p[-2], p[0], p[2]) << 2);
+            }
+        } else {
+            /* [1 2 1]/4 low-pass with taps 0.1 us apart: -15 dB at the NTSC and
+             * -30 dB at the PAL colour subcarrier at 10 and 20 MS/s alike
+             * (neighbouring samples at 20 MS/s gave only -3 dB). */
+            for (int x = 0; x < VIDEO_W; x++, pos += step) {
+                const uint8_t *p = q + (pos >> 8);
+                line[x] = (uint8_t)(p[-d] + 2 * p[0] + p[d]);
+            }
         }
     } else {
         for (int x = 0; x < VIDEO_W; x++, pos += step) {
-            uint32_t i = base + (pos >> 8);
-            line[x] = lut[(r[(i - 1) & m] & 63) + 2 * (r[i & m] & 63) + (r[(i + 1) & m] & 63)];
+            const uint32_t i = base + (pos >> 8);
+#define S(k) (r[(i + (uint32_t)(k)) & m] & 63)
+            line[x] = (uint8_t)(median ? video_med3(S(-2), S(0), S(2)) << 2 : S(-d) + 2 * S(0) + S(d));
+#undef S
         }
     }
-    memcpy(v->fb + row * VIDEO_W, line, VIDEO_W);
     if ((row & 3) == 0) {
         /* Auto-contrast statistics from every fourth line, on the same
          * filtered values the pixels show (raw samples would widen the
          * percentiles by the noise and wash the picture out). */
         uint32_t *hist = v->hist;
-        pos = pos0;
-        for (int x = 0; x < VIDEO_W; x += 2, pos += 2 * step) {
-            const uint32_t i = base + (pos >> 8);
-            hist[((r[(i - 1) & m] & 63) + 2 * (r[i & m] & 63) + (r[(i + 1) & m] & 63)) >> 2]++;
-        }
+        for (int x = 0; x < VIDEO_W; x += 2) hist[line[x] >> 2]++;
     }
+    const uint8_t *lut = v->lut;
+    for (int x = 0; x < VIDEO_W; x++) line[x] = lut[line[x]];
+    memcpy(v->fb + row * VIDEO_W, line, VIDEO_W);
 }
 
 static void restart_tracking(video_t *v, int64_t pos)
@@ -260,16 +289,25 @@ static VIDEO_HOT void process_line(video_t *v)
 {
     const int64_t t0 = v->t_edge;
     const int64_t base = t0 >> 8;
-    const bool broad = below(v, base + v->c_broad1) && below(v, base + v->c_broad2);
+    /* Broad (vertical sync) pulse: low through most of the first half line,
+     * at least 5 of 7 probes from 6 to 24 us. Two probes mistook dark picture
+     * for vsync when sync and blanking are only ~5 codes apart (board); a
+     * measured low run would be cut short by a single FM click. */
+    int probes = 0;
+    for (int k = 0; k < 7; k++) probes += box_below(v, base + v->c_broad[k]);
+    const bool broad = probes >= 5;
 
-    /* The first regular line after a run of broad pulses starts a field. */
+    /* The first regular line after a run of broad pulses starts a field.
+     * Once locked, a vertical sync far too early is noise (vertical flywheel),
+     * and a missing one is replaced after the expected field length. */
+    const int expect = v->std == VIDEO_STD_PAL ? 312 : 262;
     if (broad) {
         v->broad_run++;
     } else {
-        if (v->broad_run >= 2) field_start(v, true);
+        if (v->broad_run >= 2 && (!v->v_locked || v->line_in_field >= expect - 8)) field_start(v, true);
         v->broad_run = 0;
     }
-    if (v->line_in_field >= FREE_RUN_LINES) field_start(v, false);
+    if (v->line_in_field >= (v->v_locked ? expect + 8 : FREE_RUN_LINES)) field_start(v, false);
 
     const bool pal = v->std == VIDEO_STD_PAL;
     const int rows = pal ? 288 : 240;
@@ -365,12 +403,15 @@ void video_init(video_t *v, const uint8_t *ring, uint32_t ring_size, uint32_t fs
     v->c_min_low_unlocked = us_n(fs_hz, 3.5);
     v->c_hs_max = us_n(fs_hz, 7.5);
     v->c_max_run = us_n(fs_hz, 8.0);
-    v->c_broad1 = us_n(fs_hz, 10.0);
-    v->c_broad2 = us_n(fs_hz, 20.0);
+    v->c_box = us_n(fs_hz, 0.4) > 2 ? us_n(fs_hz, 0.4) : 2;
+    v->c_tap = us_n(fs_hz, 0.1) > 1 ? us_n(fs_hz, 0.1) : 1;
+    for (int k = 0; k < 7; k++) v->c_broad[k] = us_n(fs_hz, 6.0 + 3.0 * k);   /* 6..24 us */
     v->c_sync_a = us_n(fs_hz, 1.0);
     v->c_sync_b = us_n(fs_hz, 3.5);
-    v->c_porch_a = us_n(fs_hz, 5.8);
-    v->c_porch_b = us_n(fs_hz, 8.8);
+    /* Blanking level after the colour burst (NTSC 5.3..7.8 us, PAL
+     * 5.6..7.85 us) and before the picture (NTSC 9.4 us, PAL 10.5 us). */
+    v->c_porch_a = us_n(fs_hz, 8.0);
+    v->c_porch_b = us_n(fs_hz, 9.2);
     v->c_tail = us_n(fs_hz, 10.0);
     v->c_margin = (int)(ring_size / 8);
     /* Active picture: NTSC starts 9.4 us and PAL 10.5 us after the sync
@@ -385,6 +426,7 @@ void video_init(video_t *v, const uint8_t *ring, uint32_t ring_size, uint32_t fs
     v->active_first_pal = 20;    /* line 24 */
     v->std = VIDEO_STD_NTSC;
     v->levels = VIDEO_LEVELS_AUTO;
+    v->filter = VIDEO_FILTER_MEDIAN;
     v->render = true;
     video_reset(v, 0);
 }
@@ -410,6 +452,7 @@ void video_reset(video_t *v, uint32_t write_pos)
     v->broad_run = 0;
     v->std_votes = 0;
     v->v_locked = false;
+    v->v_miss = 0;
 }
 
 void video_process(video_t *v, uint32_t write_pos)
@@ -456,6 +499,7 @@ void video_get_stats(const video_t *v, video_stats_t *o)
     o->h_offset_tenths_us = v->h_offset_tenths;
     o->v_offset_lines = v->v_offset;
     o->levels = v->levels;
+    o->filter = v->filter;
 }
 
 void video_shift_h(video_t *v, int tenths_us)
@@ -475,3 +519,9 @@ void video_set_levels(video_t *v, video_levels_t mode)
 {
     v->levels = mode;
 }
+
+void video_set_filter(video_t *v, video_filter_t filter)
+{
+    v->filter = filter;
+}
+

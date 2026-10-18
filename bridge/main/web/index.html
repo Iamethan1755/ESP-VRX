@@ -25,6 +25,11 @@
   td { padding:2px 0; } td:last-child { text-align:right; }
   h2.section { font-size:13px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin:4px 0 -4px; }
   .hint { color:var(--muted); font-size:12px; margin:-4px 0 12px; }
+  details + details { margin-top:10px; }
+  #home .hint { margin:8px 0; }
+  .form { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .form input { grid-column:1 / -1; background:var(--bg); color:var(--text); border:1px solid #2f3945; border-radius:8px; padding:11px 10px; font:inherit; min-width:0; }
+  button.on { box-shadow:inset 0 -3px 0 var(--ok); }
   footer { margin-top:14px; color:var(--muted); font-size:12px; }
   footer a { color:var(--muted); }
 </style>
@@ -48,6 +53,8 @@
     <button data-cmd="l" title="Move picture right">&#9654;</button>
     <button data-cmd="i" title="Move picture up">&#9650;</button>
     <button data-cmd="k" title="Move picture down">&#9660;</button>
+    <button data-cmd="f" id="btn-filter" title="Median filter removes the white/black speckles (FM clicks)">Despeckle</button>
+    <button data-cmd="d" id="btn-denoise" title="Average still areas over frames; moving areas stay sharp">Denoise</button>
   </div>
   <h2 class="section">Receiver</h2>
   <div class="controls">
@@ -64,6 +71,18 @@
   <details>
     <summary>Receiver details</summary>
     <table id="details"></table>
+  </details>
+  <details id="home">
+    <summary>Home Wi-Fi (view on your computer): <span id="home-state">off</span></summary>
+    <p class="hint">The bridge also joins your home network (2.4 GHz), so any computer on it can open the page.
+      The password is stored on the bridge only.</p>
+    <form id="home-form" class="form">
+      <input id="home-ssid" name="ssid" placeholder="Network name" autocomplete="off" autocapitalize="off" maxlength="32" required>
+      <input id="home-pass" name="pass" type="password" placeholder="Password (empty = keep the saved one)" autocomplete="off" maxlength="63">
+      <button type="submit">Join</button>
+      <button type="button" id="home-forget">Forget</button>
+    </form>
+    <p class="hint" id="home-msg"></p>
   </details>
   <footer>Video decoded from a <a href="https://github.com/Twotoz/C5VRX">C5VRX</a> receiver (by Twotoz and the C5VRX contributors) and streamed by an ESP32-S3.</footer>
 </main>
@@ -85,6 +104,20 @@
       .then(r => { hint.textContent = r.ok ? `Sent "${b.textContent.trim()}" to the receiver.` : 'The bridge did not accept that key.'; })
       .catch(() => { hint.textContent = 'Bridge not reachable.'; }));
   });
+  const homeMsg = document.getElementById('home-msg');
+  const joinHome = (ssid, pass) => fetch('/wifi', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ ssid, pass }),
+    }).then(r => r.text().then(t => { homeMsg.textContent = r.ok ? (ssid ? `Joining "${ssid}"…` : 'Forgotten.') : t; }))
+      .catch(() => { homeMsg.textContent = 'Bridge not reachable.'; });
+  document.getElementById('home-form').addEventListener('submit', e => {
+    e.preventDefault();
+    const pass = document.getElementById('home-pass');
+    joinHome(document.getElementById('home-ssid').value.trim(), pass.value);
+    pass.value = '';
+  });
+  document.getElementById('home-forget').onclick = () => joinHome('', '');
   document.getElementById('snap').onclick = () => window.open('/snapshot.jpg?t=' + Date.now(), '_blank');
   document.getElementById('full').onclick = () => {
     const el = document.getElementById('screen');
@@ -103,7 +136,7 @@
     ['Fields / overruns / lock losses', s => `${s.fields} / ${s.overruns} / ${s.lock_losses}`],
     ['Receiver keys sent', s => `${s.c5_keys}`],
     ['Free RAM internal / PSRAM', s => `${(s.heap_int / 1024).toFixed(0)} KB / ${(s.heap_psram / 1024).toFixed(0)} KB`],
-    ['Uptime', s => `${s.uptime} s`],
+    ['Uptime / last start', s => `${s.uptime} s / ${s.reset}`],
   ];
   const table = document.getElementById('details');
   table.innerHTML = rows.map(([k], i) => `<tr><td>${k}</td><td id="r${i}"></td></tr>`).join('');
@@ -118,6 +151,15 @@
       document.getElementById('ov-left').textContent = text;
       document.getElementById('ov-right').textContent = `${s.fps.toFixed(0)} fps`;
       rows.forEach(([, f], i) => { document.getElementById('r' + i).textContent = f(s); });
+      const bf = document.getElementById('btn-filter'), bd = document.getElementById('btn-denoise');
+      bf.textContent = s.filter === 'median' ? 'Despeckle on' : 'Despeckle off';
+      bf.classList.toggle('on', s.filter === 'median');
+      bd.textContent = s.denoise ? 'Denoise on' : 'Denoise off';
+      bd.classList.toggle('on', !!s.denoise);
+      const hs = document.getElementById('home-state');
+      hs.textContent = s.home_state === 'connected' ? `${s.home_ssid} · http://${s.home_ip}/`
+                     : s.home_state === 'connecting' ? `joining ${s.home_ssid}…` : 'off';
+      if (s.home_state === 'connecting' && s.home_hint) homeMsg.textContent = s.home_hint;
     }).catch(() => { badge.textContent = 'offline'; badge.className = 'badge bad'; });
   }
   poll();

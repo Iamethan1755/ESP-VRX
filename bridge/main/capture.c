@@ -321,6 +321,20 @@ esp_err_t capture_selftest(char *out, size_t len)
         }
         esp_rom_delay_us(1);
     }
+    /* An unpowered C5 drives nothing but clamps its pins to its dead rail
+     * through the protection diodes: with the S3's pull-up a free pin reads
+     * high, a clamped one stays low. Driving them would feed that C5. */
+    for (int k = 0; k < 6; k++) {
+        gpio_set_pull_mode(s_data_gpio[k], GPIO_PULLUP_ONLY);
+        esp_rom_delay_us(50);
+        const bool high = gpio_get_level(s_data_gpio[k]);
+        gpio_set_pull_mode(s_data_gpio[k], GPIO_PULLDOWN_ONLY);
+        if (!high) {
+            snprintf(out, len, "SELFTEST refused: D%d is held low (C5 attached, maybe unpowered?). "
+                               "Disconnect D0..D5 first.", k);
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
     const bool was_running = s_running;
     capture_stop();
     for (int k = 0; k < 6; k++) {

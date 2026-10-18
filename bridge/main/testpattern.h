@@ -24,6 +24,8 @@ typedef struct {
     int lines;             /* 525 or 625 */
     uint32_t field;        /* fields written, moves the box */
     int noise;             /* +-noise codes of random noise per sample (0 = clean) */
+    int clicks;            /* FM clicks per 10000 samples: 1-2 samples forced to black or white */
+    int lv_sync, lv_blank, lv_white;   /* DAC codes of sync tip, blanking, white */
     uint32_t rng;
     int len_max, half;
     int x0, x_len;         /* active picture, samples from the line start */
@@ -31,6 +33,10 @@ typedef struct {
 } testpattern_t;
 
 bool testpattern_init(testpattern_t *t, uint8_t *ring, uint32_t ring_size, uint32_t fs_hz, bool pal);
+/* Same with chosen levels (DAC codes) and, with dark_left, the bars and
+ * ramp mirrored so every line starts dark (where vertical sync is probed). */
+bool testpattern_init_levels(testpattern_t *t, uint8_t *ring, uint32_t ring_size, uint32_t fs_hz, bool pal,
+                             int sync, int blank, int white, bool dark_left);
 void testpattern_free(testpattern_t *t);
 /* Continue writing at absolute position `pos` from the start of a frame. */
 void testpattern_restart(testpattern_t *t, uint32_t pos);

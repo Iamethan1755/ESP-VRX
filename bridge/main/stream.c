@@ -6,8 +6,13 @@
  * and sends it as one write on a TCP_NODELAY socket: no polling delay, no
  * chunk framing, no Nagle hold-back of a frame's last bytes. */
 #include "stream.h"
+#include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include "denoise.h"
+#include "homewifi.h"
+#include "mdns.h"
 #include "bridge.h"
 #include "c5link.h"
 #include "esp_event.h"
@@ -77,6 +82,20 @@ bool stream_submit(const uint8_t *fb, int w, int h)
     return true;
 }
 
+/* Temporal denoise state (encoder task only, plus the on/off switch). */
+static uint8_t *s_nr;
+static volatile bool s_nr_on;
+static bool s_nr_valid;
+static int s_nr_h;
+
+void stream_set_denoise(bool on)
+{
+    s_nr_valid = false;
+    s_nr_on = on && s_nr;
+}
+
+bool stream_denoise(void) { return s_nr_on; }
+
 static void encoder_task(void *arg)
 {
     (void)arg;
@@ -104,8 +123,19 @@ static void encoder_task(void *arg)
             enc_w = s_job_w;
             enc_h = s_job_h;
         }
+        const uint8_t *src = s_job_fb;
+        if (s_nr && s_nr_on) {
+            /* Temporal denoise here, on core 0: the result (s_nr) is what
+             * gets encoded, and the decoder's frame is free right after. */
+            const bool first = !s_nr_valid || s_nr_h != s_job_h;
+            denoise_frame(s_nr, s_job_fb, s_job_w, s_job_h, first);
+            s_nr_valid = true;
+            s_nr_h = s_job_h;
+            src = s_nr;
+            s_busy = false;
+        }
         int out_len = 0;
-        jpeg_error_t err = jpeg_enc_process(enc, s_job_fb, s_job_w * s_job_h, s_spare, JPEG_MAX, &out_len);
+        jpeg_error_t err = jpeg_enc_process(enc, src, s_job_w * s_job_h, s_spare, JPEG_MAX, &out_len);
         s_busy = false;   /* the decoder may render into that frame again */
         if (err != JPEG_ERR_OK || out_len <= 0) continue;
 
@@ -141,6 +171,19 @@ size_t stream_copy_jpeg(uint8_t *dst, size_t max)
     return n;
 }
 
+size_t stream_copy_jpeg_new(uint8_t *dst, size_t max, uint32_t *seq)
+{
+    size_t n = 0;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_seq != *seq && s_jpeg_len && s_jpeg_len <= max) {
+        memcpy(dst, s_jpeg, s_jpeg_len);
+        n = s_jpeg_len;
+        *seq = s_seq;
+    }
+    xSemaphoreGive(s_lock);
+    return n;
+}
+
 void stream_stats(float *fps, uint32_t *jpeg_bytes, uint32_t *frames, int *clients)
 {
     *fps = s_fps;
@@ -166,7 +209,7 @@ static esp_err_t index_get(httpd_req_t *req)
 
 static esp_err_t status_get(httpd_req_t *req)
 {
-    char buf[1024];
+    char buf[1536];
     int n = bridge_status_json(buf, sizeof buf);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
@@ -225,14 +268,30 @@ static bool send_all(httpd_req_t *req, const uint8_t *p, size_t n)
     return true;
 }
 
+/* Slot bookkeeping, all under s_vmux. */
+static void release_slot(int slot)
+{
+    portENTER_CRITICAL(&s_vmux);
+    s_viewer_task[slot] = NULL;
+    s_viewer_req[slot] = NULL;
+    s_viewer_used[slot] = false;
+    portEXIT_CRITICAL(&s_vmux);
+}
+
 static void viewer_task(void *arg)
 {
     const int slot = (int)(intptr_t)arg;
+    /* The task registers itself: it outranks the HTTP task and may finish
+     * (client gone at once) before xTaskCreate even returns there, which
+     * then stored the handle of a deleted task for notify_viewers(). */
+    portENTER_CRITICAL(&s_vmux);
+    s_viewer_task[slot] = xTaskGetCurrentTaskHandle();
     httpd_req_t *req = s_viewer_req[slot];
+    s_clients++;
+    portEXIT_CRITICAL(&s_vmux);
     const int fd = httpd_req_to_sockfd(req);
     int one = 1;
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
-    s_clients++;
     printf("HTTP video stream opened (viewer %d)\n", slot);
 
     /* The response is written raw: one multipart part per send, no chunking. */
@@ -262,17 +321,15 @@ static void viewer_task(void *arg)
         ok = send_all(req, buf, (size_t)h + len + 2);
     }
 
-    s_clients--;
     printf("HTTP video stream closed (viewer %d)\n", slot);
     free(buf);
     httpd_handle_t server = req->handle;
     httpd_req_async_handler_complete(req);
     httpd_sess_trigger_close(server, fd);
     portENTER_CRITICAL(&s_vmux);
-    s_viewer_task[slot] = NULL;
-    s_viewer_req[slot] = NULL;
-    s_viewer_used[slot] = false;
+    s_clients--;
     portEXIT_CRITICAL(&s_vmux);
+    release_slot(slot);
     vTaskDelete(NULL);
 }
 
@@ -291,21 +348,18 @@ static esp_err_t stream_get(httpd_req_t *req)
 
     httpd_req_t *copy = NULL;
     if (httpd_req_async_handler_begin(req, &copy) != ESP_OK) {
-        s_viewer_used[slot] = false;
-        return ESP_FAIL;
-    }
-    s_viewer_req[slot] = copy;
-    TaskHandle_t task = NULL;
-    if (xTaskCreatePinnedToCore(viewer_task, "viewer", 4096, (void *)(intptr_t)slot, 6, &task, 0) != pdPASS) {
-        httpd_req_async_handler_complete(copy);
-        s_viewer_req[slot] = NULL;
-        s_viewer_used[slot] = false;
+        release_slot(slot);
         return ESP_FAIL;
     }
     portENTER_CRITICAL(&s_vmux);
-    s_viewer_task[slot] = task;
+    s_viewer_req[slot] = copy;
     portEXIT_CRITICAL(&s_vmux);
-    return ESP_OK;   /* the viewer task owns the connection now */
+    if (xTaskCreatePinnedToCore(viewer_task, "viewer", 4096, (void *)(intptr_t)slot, 6, NULL, 0) != pdPASS) {
+        httpd_req_async_handler_complete(copy);
+        release_slot(slot);
+        return ESP_FAIL;
+    }
+    return ESP_OK;   /* the viewer task owns the connection (and its slot) now */
 }
 
 static httpd_handle_t start_server(uint16_t port, uint16_t ctrl_port, const httpd_uri_t *uris, size_t n)
@@ -363,6 +417,7 @@ void stream_print_wifi(void)
             printf("WIFI device " MACSTR " rssi=%d\n", MAC2STR(list.sta[i].mac), list.sta[i].rssi);
         if (!list.num) printf("WIFI no devices joined\n");
     }
+    homewifi_print();
 }
 
 static esp_err_t wifi_start(void)
@@ -383,6 +438,7 @@ static esp_err_t wifi_start(void)
     /* The driver logs dozens of lines per weak-link drop; the WIFI lines
      * from wifi_event() already report joins and leaves. */
     esp_log_level_set("wifi", ESP_LOG_ERROR);
+    homewifi_init();
 
     wifi_config_t ap = {0};
     const char *ssid = CONFIG_BRIDGE_WIFI_SSID, *pass = CONFIG_BRIDGE_WIFI_PASSWORD;
@@ -397,13 +453,69 @@ static esp_err_t wifi_start(void)
         if (pass[0]) ESP_LOGW(TAG, "Wi-Fi password shorter than 8 characters: network is OPEN");
         ap.ap.authmode = WIFI_AUTH_OPEN;
     }
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(homewifi_configured() ? WIFI_MODE_APSTA : WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap));
+    homewifi_apply();
     ESP_ERROR_CHECK(esp_wifi_start());
     esp_wifi_set_ps(WIFI_PS_NONE);
     esp_wifi_set_max_tx_power((int8_t)(CONFIG_BRIDGE_WIFI_TX_POWER_DBM * 4));
     ESP_LOGI(TAG, "Wi-Fi \"%s\" on channel %d: open http://192.168.4.1/", ssid, CONFIG_BRIDGE_WIFI_CHANNEL);
+
+    /* c5vrx-bridge.local on both networks. */
+    if (mdns_init() == ESP_OK) {
+        mdns_hostname_set("c5vrx-bridge");
+        mdns_instance_name_set("C5VRX Wi-Fi bridge");
+        mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
+    } else {
+        ESP_LOGW(TAG, "mDNS unavailable: use the IP address");
+    }
     return ESP_OK;
+}
+
+static void url_decode(char *s)
+{
+    char *o = s;
+    for (; *s; s++) {
+        if (*s == '+') {
+            *o++ = ' ';
+        } else if (*s == '%' && isxdigit((unsigned char)s[1]) && isxdigit((unsigned char)s[2])) {
+            const char hex[3] = {s[1], s[2], 0};
+            *o++ = (char)strtol(hex, NULL, 16);
+            s += 2;
+        } else {
+            *o++ = *s;
+        }
+    }
+    *o = 0;
+}
+
+/* POST /wifi (ssid, pass): join a home network, or forget it with an
+ * empty ssid. The password is stored in NVS only, never printed or sent. */
+static esp_err_t wifi_post(httpd_req_t *req)
+{
+    char body[256];
+    if (req->content_len <= 0 || req->content_len >= (int)sizeof body)
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad form");
+    int got = 0;
+    while (got < req->content_len) {
+        int r = httpd_req_recv(req, body + got, req->content_len - got);
+        if (r <= 0) return ESP_FAIL;
+        got += r;
+    }
+    body[got] = 0;
+    char ssid[100] = "", pass[200] = "";
+    const bool ok = httpd_query_key_value(body, "ssid", ssid, sizeof ssid) == ESP_OK &&
+                    httpd_query_key_value(body, "pass", pass, sizeof pass) == ESP_OK;
+    url_decode(ssid);
+    url_decode(pass);
+    esp_err_t err = ok ? homewifi_set(ssid, pass) : ESP_ERR_INVALID_ARG;
+    memset(pass, 0, sizeof pass);
+    memset(body, 0, sizeof body);
+    if (err == ESP_ERR_INVALID_ARG)
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                   "network name up to 32 characters, password empty or 8-63 characters");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_sendstr(req, err == ESP_OK ? "ok" : "joining, but saving it failed");
 }
 
 esp_err_t stream_start(void)
@@ -412,8 +524,15 @@ esp_err_t stream_start(void)
     s_lock = xSemaphoreCreateMutex();
     s_jpeg = alloc_big(JPEG_MAX);
     s_spare = alloc_big(JPEG_MAX);
+    /* The denoised picture is the JPEG input: 16-byte aligned for the encoder. */
+    s_nr = heap_caps_aligned_calloc(16, 1, DENOISE_W_MAX * 288, MALLOC_CAP_SPIRAM);
+    if (!s_nr) s_nr = heap_caps_aligned_calloc(16, 1, DENOISE_W_MAX * 288, MALLOC_CAP_8BIT);
+    s_nr_on = s_nr != NULL;   /* on by default */
     if (!s_job || !s_lock || !s_jpeg || !s_spare) return ESP_ERR_NO_MEM;
-    xTaskCreatePinnedToCore(encoder_task, "jpeg", 6144, NULL, 5, NULL, 0);
+    /* Lowest priority on core 0: encoding a noisy picture takes longer than a
+     * frame, so the encoder runs nonstop and must only get what the web
+     * server, viewers and USB console leave (at 5 it starved the console). */
+    xTaskCreatePinnedToCore(encoder_task, "jpeg", 6144, NULL, 2, NULL, 0);
 
     ESP_ERROR_CHECK(wifi_start());
     static const httpd_uri_t page_uris[] = {
@@ -422,6 +541,7 @@ esp_err_t stream_start(void)
         {.uri = "/cmd", .method = HTTP_GET, .handler = cmd_get},
         {.uri = "/c5", .method = HTTP_GET, .handler = c5_get},
         {.uri = "/snapshot.jpg", .method = HTTP_GET, .handler = snapshot_get},
+        {.uri = "/wifi", .method = HTTP_POST, .handler = wifi_post},
     };
     static const httpd_uri_t stream_uris[] = {
         {.uri = "/stream", .method = HTTP_GET, .handler = stream_get},

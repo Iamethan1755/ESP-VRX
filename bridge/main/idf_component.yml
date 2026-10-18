@@ -1,3 +1,4 @@
 dependencies:
   idf: ">=6.0"
   espressif/esp_new_jpeg: "^1.0.2"
+  espressif/mdns: "^1.14.0"

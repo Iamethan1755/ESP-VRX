@@ -12,8 +12,19 @@
 #define VIDEO_W     320
 #define VIDEO_H_MAX 288
 
+/* Median of three, from min/max only (single instructions on the S3). */
+static inline int video_med3(int a, int b, int c)
+{
+    const int lo = a < b ? a : b, hi = a < b ? b : a;
+    return c < lo ? lo : c > hi ? hi : c;
+}
+
 typedef enum { VIDEO_STD_UNKNOWN = 0, VIDEO_STD_NTSC, VIDEO_STD_PAL } video_std_t;
 typedef enum { VIDEO_LEVELS_AUTO = 0, VIDEO_LEVELS_SYNC } video_levels_t;
+/* Horizontal filter per pixel: median of three samples two apart (removes
+ * FM clicks, the white and black speckles, without blurring edges) or the
+ * [1 2 1] low-pass. */
+typedef enum { VIDEO_FILTER_MEDIAN = 0, VIDEO_FILTER_SMOOTH } video_filter_t;
 
 /* Called when a field is complete; `rendered` is false for a field that was
  * skipped. Return the buffer the next field is rendered into (a different
@@ -39,6 +50,7 @@ typedef struct {
     int h_offset_tenths_us;   /* user picture shift, 0.1 us steps */
     int v_offset_lines;       /* user picture shift, lines */
     video_levels_t levels;
+    video_filter_t filter;
 } video_stats_t;
 
 typedef struct {
@@ -58,7 +70,9 @@ typedef struct {
     int c_min_low_unlocked;   /* samples a sync must stay low (unlocked) */
     int c_hs_max;             /* longest low run still counted as a line sync */
     int c_max_run;            /* low-run measurement cap */
-    int c_broad1, c_broad2;   /* broad-pulse probes from line start */
+    int c_box;                /* sync search averages this many samples (0.4 us) */
+    int c_tap;                /* smoothing filter tap spacing (0.1 us) */
+    int c_broad[7];           /* broad-pulse probes from line start (6..24 us) */
     int c_sync_a, c_sync_b;   /* sync tip window */
     int c_porch_a, c_porch_b; /* back porch window */
     int c_tail;               /* samples needed past the next edge search */
@@ -95,6 +109,7 @@ typedef struct {
     int std_votes;
     video_std_t std;
     bool v_locked;
+    int v_miss;               /* vertical syncs missed in a row (flywheel) */
 
     /* output */
     uint8_t *fb;
@@ -103,6 +118,8 @@ typedef struct {
     video_field_cb_t cb;
     void *cb_ctx;
     video_levels_t levels;
+    video_filter_t filter;
+
 
     /* stats */
     uint32_t max_line_us;     /* slowest single line since the last read (firmware only) */
@@ -124,3 +141,4 @@ void video_get_stats(const video_t *v, video_stats_t *out);
 void video_shift_h(video_t *v, int tenths_us);
 void video_shift_v(video_t *v, int lines);
 void video_set_levels(video_t *v, video_levels_t mode);
+void video_set_filter(video_t *v, video_filter_t filter);
