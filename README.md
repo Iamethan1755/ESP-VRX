@@ -31,7 +31,6 @@ bridge/     ESP-IDF project for the XIAO ESP32-S3 (capture, decoder, JPEG, Wi-Fi
   main/capture.c      S3 camera port + DMA ring, loopback self-test
   main/denoise.c      temporal denoise (encoder side)
   main/stream.c       Wi-Fi access point, web page, MJPEG stream
-  main/homewifi.c     optional join of your home network (credentials in NVS)
   main/console.c      USB console keys
   main/c5link.c       receiver keys to the C5 over a UART wire
   main/web/index.html the phone page
@@ -175,26 +174,25 @@ metres fixed it. On this C5 the sync tip and blanking are only ~5 DAC codes
 apart (white ~17 codes above blanking), so the decoder's vertical sync had
 to become stricter (see below).
 
-## View on your computer (home Wi-Fi)
+## On the phone
 
-The bridge can also join your home network (2.4 GHz) while keeping its own
-access point. On the page open **Home Wi-Fi**, enter the network name and
-password, tap **Join**. Then open `http://c5vrx-bridge.local/` (or the IP
-the page shows) from any computer on that network.
+Join **C5VRX-Bridge**, open `http://192.168.4.1/` (or
+`http://c5vrx-bridge.local/`) and tap **Full**. iPhone Safari has no full
+screen for page elements, so there the picture covers the Safari window
+(4:3, X or double tap to leave); desktop, Android and iPad use real full
+screen. For no browser bars at all: Share > **Add to Home Screen** and start
+it from that icon.
 
-- The password goes from the page straight to the S3's NVS flash; it is never
-  printed on the console or in the status (`password=set` / `EMPTY` only).
-- Joining again with an empty password keeps the saved one; **Forget** erases
-  both.
-- While a home network is configured, the bridge's own access point moves to
-  that network's channel (one radio). If joining fails, the page and `w` show
-  the reason, e.g. 201 *not found* (wrong name, or a 5 GHz-only network) or
-  210 *security does not match* (no or wrong password, WPA3-only network).
+The bridge only runs its own network, on a fixed channel. An earlier
+version could also join a home network; while it searched for one, the
+bridge's network kept moving channel (12 and 13, which iPhones barely use)
+and paused for every search, and the phone's picture stuttered. That option
+is gone; the first boot of this version erases a home network it stored.
 
 ## Controls
 
 Web page: Source, Levels (auto contrast / standard sync-referenced levels),
-Snapshot, Full screen, arrows to move the picture (0.2 us / 1 line),
+Snapshot, Full (see above), arrows to move the picture (0.2 us / 1 line),
 **Despeckle** (median filter against FM clicks; off = `[1 2 1]` smoothing) and
 **Denoise** (averages still areas over frames, moving areas stay sharp); both
 start on. The details panel shows lock, standard, levels, sample rate, decode
@@ -208,7 +206,8 @@ up in the stream. Only these keys are accepted by the receiver; the download
 and calibration keys cannot be sent from the phone.
 
 USB console (S3): `s` status, `t` source, `c` levels, `j`/`l` left/right,
-`i`/`k` up/down, `f` despeckle, `d` denoise, `w` Wi-Fi details, `R` raw dump, `F` JPEG frame, `L` self-test, `G` capture
+`i`/`k` up/down, `f` despeckle, `d` denoise, `w` Wi-Fi details (devices, signal, and per viewer the
+frames per second that actually went out, skipped frames and send time), `R` raw dump, `F` JPEG frame, `L` self-test, `G` capture
 diagnostics (clock pad, DMA, registers, restart variants), `C` followed by
 a receiver key (e.g. `Cc` next channel), `u` check the key-link pin, `h` help.
 
@@ -296,7 +295,7 @@ for flying.
 | Reception worse with the S3 on | Move the antennas apart, lower `BRIDGE_WIFI_TX_POWER_DBM` (default 13 dBm). |
 | `overruns` climbing in `s` | The decoder falls behind: check `load`, `line_max` (single long lines are fine, the ring holds 3.3 ms) and that `bridge\sdkconfig` has `CONFIG_COMPILER_OPTIMIZATION_PERF=y`. |
 | Several pictures stacked in one frame | False vertical syncs: `lines/field` in `s` should be 262 (NTSC) or 312/313 (PAL). |
-| Home Wi-Fi does not join | The page's Home Wi-Fi line and `w` show the reason; re-enter the password (empty keeps the saved one). |
+| Picture on the phone stutters | `w` while it plays: `VIEWER` fps well below the `fps` in `s`, or long `send_ms`, means frames do not get out fast enough. Open `http://192.168.4.1/bench` on the phone: the console's `BENCH` line gives the Wi-Fi link's own speed (1 MB of filler). Fast there but slow video: the browser; slow there too: the link (signal, interference). Keep the phone on C5VRX-Bridge: iOS leaves networks without internet (turn off Auto-Join of the home network while watching). |
 | Receiver buttons do nothing | `u` on the S3 console must PASS; the C5 console prints `BRIDGE key c` for each key it gets (otherwise check the GPIO2 wire, the 1 kΩ, and that the C5 runs this repo's `receiver/` build). |
 | `.ps1 cannot be loaded` | Use the `powershell -ExecutionPolicy Bypass -File ...` form above. |
 

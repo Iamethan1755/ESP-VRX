@@ -12,7 +12,6 @@
 #include "bridge.h"
 #include "c5link.h"
 #include "capture.h"
-#include "homewifi.h"
 #include "console.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -246,32 +245,11 @@ void bridge_get_status(bridge_status_t *out)
     out->uptime_s = (uint32_t)(esp_timer_get_time() / 1000000);
 }
 
-/* JSON string body: quotes, backslashes and control characters escaped. */
-static void json_escape(char *dst, size_t len, const char *src)
-{
-    size_t o = 0;
-    for (; *src && o + 7 < len; src++) {
-        const unsigned char c = (unsigned char)*src;
-        if (c == '"' || c == '\\') {
-            dst[o++] = '\\';
-            dst[o++] = (char)c;
-        } else if (c < 0x20) {
-            o += (size_t)snprintf(dst + o, len - o, "\\u%04x", c);
-        } else {
-            dst[o++] = (char)c;
-        }
-    }
-    dst[o] = 0;
-}
-
 int bridge_status_json(char *buf, size_t len)
 {
     bridge_status_t s;
     bridge_get_status(&s);
     const video_stats_t *v = &s.video;
-    char home_ssid[33], home_ip[16], home_ssid_json[200];
-    homewifi_info(home_ssid, sizeof home_ssid, home_ip, sizeof home_ip);
-    json_escape(home_ssid_json, sizeof home_ssid_json, home_ssid);
     int n = snprintf(buf, len,
         "{\"source\":\"%s\",\"capture_ok\":%s,\"h_locked\":%s,\"v_locked\":%s,\"std\":\"%s\","
         "\"lines_per_field\":%d,\"line_us\":%.3f,\"sync\":%.1f,\"blank\":%.1f,\"black\":%.1f,\"white\":%.1f,"
@@ -279,7 +257,7 @@ int bridge_status_json(char *buf, size_t len)
         "\"fields\":%lu,\"overruns\":%lu,\"lock_losses\":%lu,\"h_offset_us\":%.1f,"
         "\"v_offset\":%d,\"msps\":%.2f,\"load\":%.2f,\"fps\":%.1f,\"jpeg_bytes\":%lu,\"frames\":%lu,"
         "\"clients\":%d,\"stations\":%d,\"c5_keys\":%lu,\"heap_int\":%lu,\"heap_psram\":%lu,\"uptime\":%lu,"
-        "\"home_state\":\"%s\",\"home_ssid\":\"%s\",\"home_ip\":\"%s\",\"home_hint\":\"%s\",\"reset\":\"%s\"}",
+        "\"reset\":\"%s\"}",
         bridge_source_name(s.source), s.capture_ok ? "true" : "false", v->h_locked ? "true" : "false",
         v->v_locked ? "true" : "false", v->std == VIDEO_STD_PAL ? "PAL" : "NTSC", v->lines_per_field, v->line_us,
         v->sync_level, v->blank_level, v->black_level, v->white_level,
@@ -288,7 +266,7 @@ int bridge_status_json(char *buf, size_t len)
         (unsigned long)v->lock_losses, v->h_offset_tenths_us / 10.0, v->v_offset_lines, s.sample_msps,
         s.decode_load, s.fps, (unsigned long)s.jpeg_bytes, (unsigned long)s.jpeg_frames, s.clients, s.stations, (unsigned long)s.c5_keys,
         (unsigned long)s.heap_internal, (unsigned long)s.heap_psram, (unsigned long)s.uptime_s,
-        homewifi_state_name(homewifi_state()), home_ssid_json, home_ip, homewifi_hint(), bridge_reset_reason());
+        bridge_reset_reason());
     return n < (int)len ? n : (int)len - 1;
 }
 

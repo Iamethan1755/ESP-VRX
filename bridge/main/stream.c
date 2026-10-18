@@ -11,7 +11,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include "denoise.h"
-#include "homewifi.h"
 #include "mdns.h"
 #include "bridge.h"
 #include "c5link.h"
@@ -48,6 +47,12 @@ static volatile int s_clients;
 static float s_fps;
 static uint32_t s_frames;
 static esp_netif_t *s_ap_netif;
+
+/* Per-viewer delivery for the console's w: new frames that went out,
+ * frames skipped because the previous send was still running, and how long
+ * one frame's send took (the Wi-Fi link's share), per 2 s window. */
+typedef struct { uint32_t sent, skipped, bytes, send_us_sum, send_us_max, window_us; } viewer_stats_t;
+static viewer_stats_t s_vstat_last[MAX_VIEWERS];
 
 /* Viewer slots: the request copy and task of each open /stream. */
 static portMUX_TYPE s_vmux = portMUX_INITIALIZER_UNLOCKED;
@@ -257,6 +262,28 @@ static esp_err_t snapshot_get(httpd_req_t *req)
     return err;
 }
 
+/* GET /bench: 1 MiB of filler, timed here (console line BENCH): the Wi-Fi
+ * link's own speed to that device, without the browser's MJPEG handling. */
+static esp_err_t bench_get(httpd_req_t *req)
+{
+    enum { TOTAL = 1024 * 1024, CHUNK = 4096 };
+    char *buf = malloc(CHUNK);
+    if (!buf) return httpd_resp_send_500(req);
+    memset(buf, '.', CHUNK);
+    buf[CHUNK - 1] = '\n';
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    const int64_t t0 = esp_timer_get_time();
+    esp_err_t err = ESP_OK;
+    for (int sent = 0; sent < TOTAL && err == ESP_OK; sent += CHUNK) err = httpd_resp_send_chunk(req, buf, CHUNK);
+    if (err == ESP_OK) err = httpd_resp_send_chunk(req, NULL, 0);
+    const int64_t dt = esp_timer_get_time() - t0;
+    free(buf);
+    if (err == ESP_OK) printf("BENCH %d KB in %lld ms: %.0f kB/s\n", TOTAL / 1024, dt / 1000, TOTAL / 1024.0 / (dt / 1e6));
+    else printf("BENCH aborted after %lld ms\n", dt / 1000);
+    return err;
+}
+
 static bool send_all(httpd_req_t *req, const uint8_t *p, size_t n)
 {
     while (n) {
@@ -302,13 +329,18 @@ static void viewer_task(void *arg)
                                "Connection: close\r\n\r\n";
     uint8_t *buf = alloc_big(JPEG_MAX + 128);
     bool ok = buf && send_all(req, (const uint8_t *)head, sizeof head - 1);
+    viewer_stats_t st = {0};
+    int64_t window_t0 = esp_timer_get_time();
+    uint32_t last_seq = 0;
     while (ok) {
         /* Woken by the encoder for each new JPEG; resend the last one after
          * 2 s without a frame so the connection stays alive. */
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000));
         size_t len = 0;
         int h = 0;
+        uint32_t seq = 0;
         xSemaphoreTake(s_lock, portMAX_DELAY);
+        seq = s_seq;
         if (s_jpeg_len) {
             h = snprintf((char *)buf, 128, "--" BOUNDARY "\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n",
                          (unsigned)s_jpeg_len);
@@ -318,8 +350,26 @@ static void viewer_task(void *arg)
         xSemaphoreGive(s_lock);
         if (!len) continue;
         memcpy(buf + h + len, "\r\n", 2);
+        const int64_t t0 = esp_timer_get_time();
         ok = send_all(req, buf, (size_t)h + len + 2);
+        const uint32_t dt = (uint32_t)(esp_timer_get_time() - t0);
+        if (seq != last_seq) {   /* not the keep-alive resend */
+            if (last_seq && seq - last_seq > 1) st.skipped += seq - last_seq - 1;
+            last_seq = seq;
+            st.sent++;
+            st.bytes += (uint32_t)len;
+            st.send_us_sum += dt;
+            if (dt > st.send_us_max) st.send_us_max = dt;
+        }
+        const int64_t now = esp_timer_get_time();
+        if (now - window_t0 >= 2000000) {
+            st.window_us = (uint32_t)(now - window_t0);
+            s_vstat_last[slot] = st;
+            st = (viewer_stats_t){0};
+            window_t0 = now;
+        }
     }
+    s_vstat_last[slot] = (viewer_stats_t){0};
 
     printf("HTTP video stream closed (viewer %d)\n", slot);
     free(buf);
@@ -417,7 +467,36 @@ void stream_print_wifi(void)
             printf("WIFI device " MACSTR " rssi=%d\n", MAC2STR(list.sta[i].mac), list.sta[i].rssi);
         if (!list.num) printf("WIFI no devices joined\n");
     }
-    homewifi_print();
+    for (int i = 0; i < MAX_VIEWERS; i++) {
+        const viewer_stats_t v = s_vstat_last[i];
+        if (!v.window_us) continue;
+        const float sec = v.window_us / 1e6f;
+        printf("VIEWER %d fps=%.1f skipped/s=%.1f kB/s=%.0f send_ms avg=%.1f max=%.1f\n", i, v.sent / sec,
+               v.skipped / sec, v.bytes / 1024.0f / sec, v.sent ? v.send_us_sum / 1000.0f / v.sent : 0.0f,
+               v.send_us_max / 1000.0f);
+    }
+}
+
+/* The bridge once had a home Wi-Fi option (AP+STA): erase a network it
+ * stored, ours ("bridge" sta_ssid/sta_pass) and the driver's copy, once. */
+static void forget_old_home_wifi(void)
+{
+    nvs_handle_t h;
+    if (nvs_open("bridge", NVS_READWRITE, &h) != ESP_OK) return;
+    size_t n = 0;
+    const bool stored = nvs_get_str(h, "sta_ssid", NULL, &n) == ESP_OK;
+    if (stored) {
+        nvs_erase_key(h, "sta_ssid");
+        nvs_erase_key(h, "sta_pass");
+        nvs_commit(h);
+    }
+    nvs_close(h);
+    if (stored && nvs_open("nvs.net80211", NVS_READWRITE, &h) == ESP_OK) {
+        nvs_erase_all(h);
+        nvs_commit(h);
+        nvs_close(h);
+        printf("WIFI erased the stored home network (feature removed)\n");
+    }
 }
 
 static esp_err_t wifi_start(void)
@@ -433,12 +512,13 @@ static esp_err_t wifi_start(void)
     s_ap_netif = esp_netif_create_default_wifi_ap();
     esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event, NULL);
     esp_event_handler_register(IP_EVENT, IP_EVENT_ASSIGNED_IP_TO_CLIENT, wifi_event, NULL);
+    forget_old_home_wifi();
     wifi_init_config_t init = WIFI_INIT_CONFIG_DEFAULT();
+    init.nvs_enable = false;   /* the AP is configured on every boot: no flash writes for it */
     ESP_ERROR_CHECK(esp_wifi_init(&init));
     /* The driver logs dozens of lines per weak-link drop; the WIFI lines
      * from wifi_event() already report joins and leaves. */
     esp_log_level_set("wifi", ESP_LOG_ERROR);
-    homewifi_init();
 
     wifi_config_t ap = {0};
     const char *ssid = CONFIG_BRIDGE_WIFI_SSID, *pass = CONFIG_BRIDGE_WIFI_PASSWORD;
@@ -453,15 +533,14 @@ static esp_err_t wifi_start(void)
         if (pass[0]) ESP_LOGW(TAG, "Wi-Fi password shorter than 8 characters: network is OPEN");
         ap.ap.authmode = WIFI_AUTH_OPEN;
     }
-    ESP_ERROR_CHECK(esp_wifi_set_mode(homewifi_configured() ? WIFI_MODE_APSTA : WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap));
-    homewifi_apply();
     ESP_ERROR_CHECK(esp_wifi_start());
     esp_wifi_set_ps(WIFI_PS_NONE);
     esp_wifi_set_max_tx_power((int8_t)(CONFIG_BRIDGE_WIFI_TX_POWER_DBM * 4));
     ESP_LOGI(TAG, "Wi-Fi \"%s\" on channel %d: open http://192.168.4.1/", ssid, CONFIG_BRIDGE_WIFI_CHANNEL);
 
-    /* c5vrx-bridge.local on both networks. */
+    /* http://c5vrx-bridge.local/ besides 192.168.4.1 */
     if (mdns_init() == ESP_OK) {
         mdns_hostname_set("c5vrx-bridge");
         mdns_instance_name_set("C5VRX Wi-Fi bridge");
@@ -470,52 +549,6 @@ static esp_err_t wifi_start(void)
         ESP_LOGW(TAG, "mDNS unavailable: use the IP address");
     }
     return ESP_OK;
-}
-
-static void url_decode(char *s)
-{
-    char *o = s;
-    for (; *s; s++) {
-        if (*s == '+') {
-            *o++ = ' ';
-        } else if (*s == '%' && isxdigit((unsigned char)s[1]) && isxdigit((unsigned char)s[2])) {
-            const char hex[3] = {s[1], s[2], 0};
-            *o++ = (char)strtol(hex, NULL, 16);
-            s += 2;
-        } else {
-            *o++ = *s;
-        }
-    }
-    *o = 0;
-}
-
-/* POST /wifi (ssid, pass): join a home network, or forget it with an
- * empty ssid. The password is stored in NVS only, never printed or sent. */
-static esp_err_t wifi_post(httpd_req_t *req)
-{
-    char body[256];
-    if (req->content_len <= 0 || req->content_len >= (int)sizeof body)
-        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad form");
-    int got = 0;
-    while (got < req->content_len) {
-        int r = httpd_req_recv(req, body + got, req->content_len - got);
-        if (r <= 0) return ESP_FAIL;
-        got += r;
-    }
-    body[got] = 0;
-    char ssid[100] = "", pass[200] = "";
-    const bool ok = httpd_query_key_value(body, "ssid", ssid, sizeof ssid) == ESP_OK &&
-                    httpd_query_key_value(body, "pass", pass, sizeof pass) == ESP_OK;
-    url_decode(ssid);
-    url_decode(pass);
-    esp_err_t err = ok ? homewifi_set(ssid, pass) : ESP_ERR_INVALID_ARG;
-    memset(pass, 0, sizeof pass);
-    memset(body, 0, sizeof body);
-    if (err == ESP_ERR_INVALID_ARG)
-        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                                   "network name up to 32 characters, password empty or 8-63 characters");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-    return httpd_resp_sendstr(req, err == ESP_OK ? "ok" : "joining, but saving it failed");
 }
 
 esp_err_t stream_start(void)
@@ -541,7 +574,7 @@ esp_err_t stream_start(void)
         {.uri = "/cmd", .method = HTTP_GET, .handler = cmd_get},
         {.uri = "/c5", .method = HTTP_GET, .handler = c5_get},
         {.uri = "/snapshot.jpg", .method = HTTP_GET, .handler = snapshot_get},
-        {.uri = "/wifi", .method = HTTP_POST, .handler = wifi_post},
+        {.uri = "/bench", .method = HTTP_GET, .handler = bench_get},
     };
     static const httpd_uri_t stream_uris[] = {
         {.uri = "/stream", .method = HTTP_GET, .handler = stream_get},

@@ -3,6 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Added to the home screen, iOS/Android open it without browser bars. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="VRX Bridge">
+<meta name="theme-color" content="#0b0d10">
 <title>C5VRX Bridge</title>
 <style>
   :root { --bg:#0b0d10; --panel:#161a20; --text:#e8eaed; --muted:#8b93a0; --ok:#3fb950; --bad:#f85149; --warn:#d29922; --btn:#232a33; --btn-active:#2f3945; }
@@ -16,6 +22,21 @@
   .screen { position:relative; width:100%; aspect-ratio:4/3; background:#000; border-radius:10px; overflow:hidden; }
   .screen img { width:100%; height:100%; object-fit:fill; display:block; image-rendering:auto; }
   .overlay { position:absolute; inset:auto 8px 8px 8px; display:flex; justify-content:space-between; font:12px/1.2 ui-monospace, Menlo, Consolas, monospace; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none; }
+  /* Full screen: the browser's own where it exists (desktop, Android, iPad);
+   * iPhone Safari has none for page elements, so there the picture covers
+   * the window (.fs). Either way the picture stays 4:3, centred. */
+  .screen { touch-action:manipulation; }
+  .screen.fs { position:fixed; inset:0; z-index:10; width:auto; aspect-ratio:auto; border-radius:0;
+               padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  .screen:fullscreen { border-radius:0; }
+  .screen:-webkit-full-screen { border-radius:0; width:100%; height:100%; }
+  .screen.fs, .screen.fs-native { display:flex; align-items:center; justify-content:center; container-type:size; }
+  .screen.fs img, .screen.fs-native img { width:min(100vw, 133.33vh); width:min(100cqw, 133.33cqh); height:auto; aspect-ratio:4/3; }
+  .screen.fs .overlay { inset:auto calc(env(safe-area-inset-right) + 12px) calc(env(safe-area-inset-bottom) + 10px) calc(env(safe-area-inset-left) + 12px); font-size:13px; }
+  .fs-exit { display:none; position:absolute; z-index:2; top:calc(env(safe-area-inset-top) + 10px); right:calc(env(safe-area-inset-right) + 10px);
+             background:rgba(0,0,0,.5); color:#fff; border-radius:999px; padding:8px 13px; font-size:16px; line-height:1; }
+  .screen.fs .fs-exit, .screen.fs-native .fs-exit { display:block; }
+  body.fs-on { overflow:hidden; }
   .controls { display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin:12px 0; }
   button { background:var(--btn); color:var(--text); border:0; border-radius:8px; padding:12px 6px; font:inherit; font-weight:600; touch-action:manipulation; }
   button:active { background:var(--btn-active); }
@@ -26,9 +47,6 @@
   h2.section { font-size:13px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin:4px 0 -4px; }
   .hint { color:var(--muted); font-size:12px; margin:-4px 0 12px; }
   details + details { margin-top:10px; }
-  #home .hint { margin:8px 0; }
-  .form { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-  .form input { grid-column:1 / -1; background:var(--bg); color:var(--text); border:1px solid #2f3945; border-radius:8px; padding:11px 10px; font:inherit; min-width:0; }
   button.on { box-shadow:inset 0 -3px 0 var(--ok); }
   footer { margin-top:14px; color:var(--muted); font-size:12px; }
   footer a { color:var(--muted); }
@@ -43,6 +61,7 @@
   <div class="screen" id="screen">
     <img id="video" alt="Live video from the C5VRX receiver">
     <div class="overlay"><span id="ov-left"></span><span id="ov-right"></span></div>
+    <button class="fs-exit" id="fs-exit" aria-label="Exit full screen" title="Exit full screen">&#10005;</button>
   </div>
   <div class="controls">
     <button data-cmd="t" title="C5 input / NTSC test pattern / PAL test pattern">Source</button>
@@ -72,18 +91,6 @@
     <summary>Receiver details</summary>
     <table id="details"></table>
   </details>
-  <details id="home">
-    <summary>Home Wi-Fi (view on your computer): <span id="home-state">off</span></summary>
-    <p class="hint">The bridge also joins your home network (2.4 GHz), so any computer on it can open the page.
-      The password is stored on the bridge only.</p>
-    <form id="home-form" class="form">
-      <input id="home-ssid" name="ssid" placeholder="Network name" autocomplete="off" autocapitalize="off" maxlength="32" required>
-      <input id="home-pass" name="pass" type="password" placeholder="Password (empty = keep the saved one)" autocomplete="off" maxlength="63">
-      <button type="submit">Join</button>
-      <button type="button" id="home-forget">Forget</button>
-    </form>
-    <p class="hint" id="home-msg"></p>
-  </details>
   <footer>Video decoded from a <a href="https://github.com/Twotoz/C5VRX">C5VRX</a> receiver (by Twotoz and the C5VRX contributors) and streamed by an ESP32-S3.</footer>
 </main>
 <script>
@@ -104,25 +111,43 @@
       .then(r => { hint.textContent = r.ok ? `Sent "${b.textContent.trim()}" to the receiver.` : 'The bridge did not accept that key.'; })
       .catch(() => { hint.textContent = 'Bridge not reachable.'; }));
   });
-  const homeMsg = document.getElementById('home-msg');
-  const joinHome = (ssid, pass) => fetch('/wifi', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ ssid, pass }),
-    }).then(r => r.text().then(t => { homeMsg.textContent = r.ok ? (ssid ? `Joining "${ssid}"…` : 'Forgotten.') : t; }))
-      .catch(() => { homeMsg.textContent = 'Bridge not reachable.'; });
-  document.getElementById('home-form').addEventListener('submit', e => {
-    e.preventDefault();
-    const pass = document.getElementById('home-pass');
-    joinHome(document.getElementById('home-ssid').value.trim(), pass.value);
-    pass.value = '';
-  });
-  document.getElementById('home-forget').onclick = () => joinHome('', '');
   document.getElementById('snap').onclick = () => window.open('/snapshot.jpg?t=' + Date.now(), '_blank');
-  document.getElementById('full').onclick = () => {
-    const el = document.getElementById('screen');
-    (el.requestFullscreen || el.webkitRequestFullscreen || (() => {})).call(el);
+  /* Full screen: native where the browser offers it for elements, else the
+   * picture covers the window (iPhone Safari). Exit: the X, Escape, or a
+   * double tap on the picture; native also exits the browser's own way. */
+  const view = document.getElementById('screen');
+  const nativeEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+  const isFull = () => !!nativeEl() || view.classList.contains('fs');
+  const coverWindow = () => { view.classList.add('fs'); document.body.classList.add('fs-on'); };
+  const enterFull = () => {
+    const req = view.requestFullscreen || view.webkitRequestFullscreen;
+    if (!req || !(document.fullscreenEnabled || document.webkitFullscreenEnabled)) return coverWindow();
+    try {
+      const p = req.call(view);
+      if (p && p.then) p.then(() => {
+        if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+      }, coverWindow);
+      /* A request can also stay unanswered (embedded browsers): cover the
+       * window then; native full screen arriving later takes over. */
+      setTimeout(() => { if (!nativeEl()) coverWindow(); }, 700);
+    } catch (e) { coverWindow(); }
   };
+  const exitFull = () => {
+    if (nativeEl()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    view.classList.remove('fs');
+    document.body.classList.remove('fs-on');
+  };
+  const syncNative = () => {
+    const on = nativeEl() === view;
+    view.classList.toggle('fs-native', on);
+    if (on) { view.classList.remove('fs'); document.body.classList.remove('fs-on'); }
+  };
+  document.addEventListener('fullscreenchange', syncNative);
+  document.addEventListener('webkitfullscreenchange', syncNative);
+  document.getElementById('full').onclick = () => (isFull() ? exitFull() : enterFull());
+  document.getElementById('fs-exit').onclick = e => { e.stopPropagation(); exitFull(); };
+  view.addEventListener('dblclick', () => (isFull() ? exitFull() : enterFull()));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && view.classList.contains('fs')) exitFull(); });
 
   const badge = document.getElementById('badge');
   const rows = [
@@ -156,10 +181,6 @@
       bf.classList.toggle('on', s.filter === 'median');
       bd.textContent = s.denoise ? 'Denoise on' : 'Denoise off';
       bd.classList.toggle('on', !!s.denoise);
-      const hs = document.getElementById('home-state');
-      hs.textContent = s.home_state === 'connected' ? `${s.home_ssid} · http://${s.home_ip}/`
-                     : s.home_state === 'connecting' ? `joining ${s.home_ssid}…` : 'off';
-      if (s.home_state === 'connecting' && s.home_hint) homeMsg.textContent = s.home_hint;
     }).catch(() => { badge.textContent = 'offline'; badge.className = 'badge bad'; });
   }
   poll();
