@@ -8,13 +8,15 @@
   .\tools\build.ps1 bridge -Port COM7 -Flash -Monitor
   .\tools\build.ps1 receiver -Port COM8 -Flash
   .\tools\build.ps1 bridge -Menuconfig               # Wi-Fi name, password, pins, frame rate
+  .\tools\build.ps1 bridge -Reconfigure              # after editing Kconfig.projbuild (new options)
 #>
 param(
     [ValidateSet('all', 'receiver', 'bridge')][string]$Target = 'all',
     [string]$Port,
     [switch]$Flash,
     [switch]$Monitor,
-    [switch]$Menuconfig
+    [switch]$Menuconfig,
+    [switch]$Reconfigure
 )
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
@@ -24,6 +26,7 @@ $idf = if ($env:IDF_PATH) { $env:IDF_PATH } else { 'C:\esp\v6.0.2\esp-idf' }
 function Invoke-Project([string]$name, [string]$dir, [string[]]$extra) {
     $build = Join-Path $root "build\$name"
     $idfArgs = @('-C', (Join-Path $root $dir), '-B', $build) + $extra
+    if ($Reconfigure) { $idfArgs += 'reconfigure' }   # a changed Kconfig is not always picked up
     if ($Menuconfig) { $idfArgs += 'menuconfig' }
     $idfArgs += 'build'
     if ($Flash -or $Monitor) {

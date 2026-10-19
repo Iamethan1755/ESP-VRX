@@ -72,9 +72,16 @@ static bool IRAM_ATTR on_eof(gdma_channel_handle_t chan, gdma_event_data_t *ev, 
 
 void capture_set_notify(TaskHandle_t task) { s_notify = task; }
 
+#ifdef CONFIG_BRIDGE_KEYS_ON_D0
+#define FIRST_BIT 1   /* D0 carries the receiver keys (c5link); video bit 0 reads 0 */
+#else
+#define FIRST_BIT 0
+#endif
+
 static void data_pins_input(void)
 {
-    for (int k = 0; k < 6; k++) {
+    if (FIRST_BIT) esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ZERO_INPUT, CAM_DATA_IN0_IDX, false);
+    for (int k = FIRST_BIT; k < 6; k++) {
         gpio_config_t io = {
             .pin_bit_mask = 1ULL << s_data_gpio[k],
             .mode = GPIO_MODE_INPUT,
@@ -313,7 +320,7 @@ esp_err_t capture_selftest(char *out, size_t len)
     /* Refuse when something drives the pins: with their pull-downs they read
      * 0 unless a (powered) C5 is attached, whose video toggles them. */
     for (int i = 0; i < 2000; i++) {
-        for (int k = 0; k < 6; k++) {
+        for (int k = FIRST_BIT; k < 6; k++) {
             if (gpio_get_level(s_data_gpio[k])) {
                 snprintf(out, len, "SELFTEST refused: D%d is driven from outside (C5 attached?). "
                                    "Disconnect D0..D5 first.", k);
@@ -325,7 +332,7 @@ esp_err_t capture_selftest(char *out, size_t len)
     /* An unpowered C5 drives nothing but clamps its pins to its dead rail
      * through the protection diodes: with the S3's pull-up a free pin reads
      * high, a clamped one stays low. Driving them would feed that C5. */
-    for (int k = 0; k < 6; k++) {
+    for (int k = FIRST_BIT; k < 6; k++) {
         gpio_set_pull_mode(s_data_gpio[k], GPIO_PULLUP_ONLY);
         esp_rom_delay_us(50);
         const bool high = gpio_get_level(s_data_gpio[k]);
@@ -338,15 +345,18 @@ esp_err_t capture_selftest(char *out, size_t len)
     }
     const bool was_running = s_running;
     capture_stop();
-    for (int k = 0; k < 6; k++) {
+    for (int k = FIRST_BIT; k < 6; k++) {
         gpio_set_pull_mode(s_data_gpio[k], GPIO_FLOATING);
         gpio_set_direction(s_data_gpio[k], GPIO_MODE_INPUT_OUTPUT);
     }
+    const uint8_t mask = (uint8_t)(0x3f & ~((1u << FIRST_BIT) - 1u));   /* bits under test */
 
     int fails = 0;
     size_t n = (size_t)snprintf(out, len, "SELFTEST");
     for (size_t p = 0; p < sizeof patterns; p++) {
-        for (int k = 0; k < 6; k++) gpio_set_level(s_data_gpio[k], (patterns[p] >> k) & 1);
+        const uint8_t want = patterns[p] & mask;
+        if (p && want == (patterns[p - 1] & mask)) continue;   /* bit-0-only pattern with keys on D0 */
+        for (int k = FIRST_BIT; k < 6; k++) gpio_set_level(s_data_gpio[k], (want >> k) & 1);
         if (capture_start() != ESP_OK) {
             fails++;
             n += (size_t)snprintf(out + n, len > n ? len - n : 0, " %02x:no-data", patterns[p]);
@@ -357,16 +367,16 @@ esp_err_t capture_selftest(char *out, size_t len)
         capture_stop();
         const uint8_t *node = s_ring + ((wp - CAPTURE_NODE_BYTES) & (CAPTURE_RING_BYTES - 1));
         int wrong = 0;
-        uint8_t seen = patterns[p];
+        uint8_t seen = want;
         for (uint32_t i = 0; i < CAPTURE_NODE_BYTES; i++) {
-            if (node[i] != patterns[p]) {
+            if (node[i] != want) {
                 wrong++;
                 seen = node[i];
             }
         }
         if (wrong) fails++;
         n += (size_t)snprintf(out + n, len > n ? len - n : 0, wrong ? " %02x->%02x(x%d)" : " %02x:ok",
-                              patterns[p], seen, wrong);
+                              want, seen, wrong);
     }
 
     float msps = 0;
@@ -384,7 +394,7 @@ esp_err_t capture_selftest(char *out, size_t len)
     n += (size_t)snprintf(out + n, len > n ? len - n : 0, " rate=%.2fMS/s(want %.0f) %s", msps, want,
                           fails ? "FAIL" : "PASS");
 
-    for (int k = 0; k < 6; k++) gpio_set_level(s_data_gpio[k], 0);
+    for (int k = FIRST_BIT; k < 6; k++) gpio_set_level(s_data_gpio[k], 0);
     data_pins_input();
     if (was_running) capture_start();
     return fails ? ESP_FAIL : ESP_OK;

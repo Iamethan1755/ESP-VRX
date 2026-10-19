@@ -35,7 +35,7 @@ C5_LEFT = [
     ("D1", "GPIO0", "dnc", "leave free (IQ)"),
     ("D2", "GPIO25", "dnc", "leave free (IQ)"),
     ("D3", "GPIO7", "dnc", "leave free (IQ)"),
-    ("D4", "GPIO23", "bit0", "bit 0"),
+    ("D4", "GPIO23", "link", "keys in (was bit 0)"),
     ("D5", "GPIO24", "bit1", "bit 1"),
     ("D6", "GPIO11", "bit2", "bit 2"),
 ]
@@ -49,7 +49,7 @@ C5_RIGHT = [
     ("D7", "GPIO12", "bit3", "bit 3"),
 ]
 S3_LEFT = [
-    ("D0", "GPIO1", "bit0", "bit 0"),
+    ("D0", "GPIO1", "link", "keys out (was bit 0)"),
     ("D1", "GPIO2", "bit1", "bit 1"),
     ("D2", "GPIO3", "bit2", "bit 2"),
     ("D3", "GPIO4", "bit3", "bit 3"),
@@ -63,7 +63,7 @@ S3_RIGHT = [
     ("3V3", "", "free", "not used"),
     ("D10", "GPIO9", "free", "free"),
     ("D9", "GPIO8", "free", "free"),
-    ("D8", "GPIO7", "link", "link to C5 GPIO2"),
+    ("D8", "GPIO7", "free", "free"),
     ("D7", "GPIO44", "free", "free"),
 ]
 
@@ -117,7 +117,7 @@ def resistor_h(x1, x2, y, colour, label):
 add(f'<rect width="{W}" height="{H}" fill="#FFFFFF"/>')
 text(40, 48, "VRX Bridge: wiring", 28, "700")
 text(40, 74, "XIAO ESP32-C5 (5.8 GHz receiver, C5VRX) to XIAO ESP32-S3 (Wi-Fi bridge). "
-             "Seven wires carry the video; one optional wire lets the phone change channels.", 15, fill=MUTED)
+             "Seven wires: five video bits, the phone's receiver keys (on the bit 0 wire) and ground.", 15, fill=MUTED)
 
 # ---- row 1: schematic ----------------------------------------------------
 BOX_Y, BOX_H = 130, 460
@@ -137,9 +137,18 @@ mono = "Consolas, 'Cascadia Mono', monospace"
 
 for i, (c5p, c5g, s3p, s3g) in enumerate(VIDEO):
     y, col = rows[i], BIT_COLOURS[i]
+    if i == 0:   # the bit 0 wire carries the receiver keys, S3 to C5
+        add(f'<line x1="360" y1="{y}" x2="1040" y2="{y}" stroke="{LINK}" stroke-width="4" stroke-linecap="round"/>')
+        add(f'<path d="M462 {y-7}L448 {y}L462 {y+7}Z" fill="{LINK}"/>')
+        text(700, y - 8, "receiver keys, S3 to C5 (UART; was video bit 0)", 13, "600", LINK, "middle")
+        text(346, y + 5, f"{c5p} · {c5g}", 15, "600", INK, "end", mono)
+        text(1054, y + 5, f"{s3p} · {s3g}", 15, "600", INK, "start", mono)
+        pin_marker(360, y, "link")
+        pin_marker(1040, y, "link")
+        continue
     add(f'<line x1="360" y1="{y}" x2="1040" y2="{y}" stroke="{col}" stroke-width="4" stroke-linecap="round"/>')
     add(f'<path d="M952 {y-7}L966 {y}L952 {y+7}Z" fill="{col}"/>')
-    text(700, y - 8, f"bit {i}" + (" (LSB)" if i == 0 else " (MSB)" if i == 5 else ""), 13, "600", col, "middle")
+    text(700, y - 8, f"bit {i}" + (" (MSB)" if i == 5 else ""), 13, "600", col, "middle")
     text(346, y + 5, f"{c5p} · {c5g}", 15, "600", INK, "end", mono)
     text(1054, y + 5, f"{s3p} · {s3g}", 15, "600", INK, "start", mono)
     pin_marker(360, y, f"bit{i}")
@@ -152,16 +161,7 @@ text(1054, gnd_y + 5, "GND", 15, "600", INK, "start", mono)
 pin_marker(360, gnd_y, "gnd")
 pin_marker(1040, gnd_y, "gnd")
 
-add(f'<line x1="360" y1="{link_y}" x2="1040" y2="{link_y}" stroke="{LINK}" stroke-width="3" stroke-dasharray="10 7"/>')
-resistor_h(660, 740, link_y, LINK, "1 kΩ")
-add(f'<path d="M462 {link_y-7}L448 {link_y}L462 {link_y+7}Z" fill="{LINK}"/>')
-text(700, link_y - 16, "optional: phone channel control (S3 sends keys, UART 115200)", 13, "600", LINK, "middle")
-text(346, link_y - 3, "GPIO2", 15, "600", INK, "end", mono)
-text(346, link_y + 14, "MTMS pad, back", 12, fill=MUTED, anchor="end")
-text(1054, link_y - 3, "D8 · GPIO7", 15, "600", INK, "start", mono)
-text(1054, link_y + 14, "UART TX", 12, fill=MUTED, anchor="start")
-pin_marker(360, link_y, "link")
-pin_marker(1040, link_y, "link")
+text(700, link_y, "No other wires: the C5's back pads and S3 D8 stay free.", 13, fill=MUTED, anchor="middle")
 
 text(700, BOX_Y + BOX_H + 26, "Video flows C5 → S3 (the C5's 6-bit DAC bus, 20 MS/s). "
      "The S3 inputs only listen: goggles on the DAC keep working.", 13, fill=MUTED, anchor="middle")
@@ -198,8 +198,8 @@ def board(x0, name, sub, left, right, notes):
 
 
 board(240, "XIAO ESP32-C5", "receiver", C5_LEFT, C5_RIGHT,
-      ["Back side: GPIO2 = MTMS pad ← link wire (1 kΩ)",
-       "GPIO3–5 pads carry IQ: leave them free"])
+      ["Back side: leave all pads free",
+       "(GPIO3–5 carry IQ)"])
 board(990, "XIAO ESP32-S3", "Wi-Fi bridge", S3_LEFT, S3_RIGHT,
       ["Back side: GPIO42 = MTMS pad, sample-clock loop",
        "leave it unconnected"])
@@ -207,7 +207,7 @@ board(990, "XIAO ESP32-S3", "Wi-Fi bridge", S3_LEFT, S3_RIGHT,
 # legend
 LX, LY = 640, ROW2 + 60
 text(LX, LY, "Legend", 15, "700")
-legend = [("bit0", "video bit"), ("gnd", "ground"), ("link", "key link (opt.)"),
+legend = [("bit0", "video bit"), ("gnd", "ground"), ("link", "key line"),
           ("dnc", "never connect"), ("free", "unused")]
 for i, (k, s) in enumerate(legend):
     pin_marker(LX + 8, LY + 26 + i * 28, k)
@@ -247,8 +247,8 @@ rules = [
     "Antennas on both boards before power, kept apart.",
     "C5 D0–D3, D10 and the GPIO3–5 pads: never connect.",
     "S3 GPIO42 back pad: never connect (sample clock).",
-    "Link wire: only with this repo's receiver build;",
-    "  the 1 kΩ stops the S3 powering an unpowered C5.",
+    "Keys on D4: flash this repo's receiver build first,",
+    "  then the S3 (the S3 drives D0 only while sending).",
     "Self-test (S3 console L) only with D0–D5 disconnected;",
     "  it refuses if it sees the C5 driving them.",
 ]

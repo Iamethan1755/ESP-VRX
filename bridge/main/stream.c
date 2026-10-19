@@ -210,6 +210,8 @@ static esp_err_t index_get(httpd_req_t *req)
 {
     printf("HTTP page requested\n");
     httpd_resp_set_type(req, "text/html");
+    /* Always the page of the firmware that runs: Safari kept an old one. */
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
     return httpd_resp_send(req, index_html, HTTPD_RESP_USE_STRLEN);
 }
 
@@ -233,12 +235,22 @@ static esp_err_t cmd_get(httpd_req_t *req)
     return httpd_resp_sendstr(req, "ok");
 }
 
-/* /c5?k=X: one receiver key over the UART link (see c5link.h). */
+/* /c5?k=X: one receiver key over the UART link; /c5?ch=N: tune straight
+ * to channel N (0..47, see c5link.h). */
 static esp_err_t c5_get(httpd_req_t *req)
 {
     char query[32], val[4];
-    bool ok = httpd_req_get_url_query_str(req, query, sizeof query) == ESP_OK &&
-              httpd_query_key_value(query, "k", val, sizeof val) == ESP_OK &&
+    const bool q = httpd_req_get_url_query_str(req, query, sizeof query) == ESP_OK;
+    if (q && httpd_query_key_value(query, "ch", val, sizeof val) == ESP_OK) {
+        char *end = NULL;
+        const long ch = strtol(val, &end, 10);
+        if (!val[0] || *end || !c5link_set_channel((int)ch))
+            return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "channel 0..47");
+        printf("C5 <- channel %ld\n", ch);
+        httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+        return httpd_resp_sendstr(req, "ok");
+    }
+    bool ok = q && httpd_query_key_value(query, "k", val, sizeof val) == ESP_OK &&
               val[0] && !val[1] && c5link_send(val[0]);
     if (!ok) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unknown receiver key");
     printf("C5 <- %c\n", val[0]);
@@ -320,16 +332,29 @@ static void viewer_task(void *arg)
     const int fd = httpd_req_to_sockfd(req);
     int one = 1;
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
-    printf("HTTP video stream opened (viewer %d)\n", slot);
+    /* ?raw=1: the same bytes as plain binary for the page's own reader.
+     * WebKit (iPhone Safari) handles multipart/x-mixed-replace itself and a
+     * fetch() of it closed at once (board, 2026-10-18). */
+    char query[32], val[4];
+    const bool raw = httpd_req_get_url_query_str(req, query, sizeof query) == ESP_OK &&
+                     httpd_query_key_value(query, "raw", val, sizeof val) == ESP_OK && val[0] == '1';
+    printf("HTTP video stream opened (viewer %d%s)\n", slot, raw ? ", raw" : "");
 
     /* The response is written raw: one multipart part per send, no chunking. */
-    static const char head[] = "HTTP/1.1 200 OK\r\n"
-                               "Content-Type: multipart/x-mixed-replace;boundary=" BOUNDARY "\r\n"
-                               "Access-Control-Allow-Origin: *\r\n"
-                               "Cache-Control: no-store\r\n"
-                               "Connection: close\r\n\r\n";
+    static const char head_mjpeg[] = "HTTP/1.1 200 OK\r\n"
+                                     "Content-Type: multipart/x-mixed-replace;boundary=" BOUNDARY "\r\n"
+                                     "Access-Control-Allow-Origin: *\r\n"
+                                     "Cache-Control: no-store\r\n"
+                                     "Connection: close\r\n\r\n";
+    static const char head_raw[] = "HTTP/1.1 200 OK\r\n"
+                                   "Content-Type: application/octet-stream\r\n"
+                                   "X-Content-Type-Options: nosniff\r\n"
+                                   "Access-Control-Allow-Origin: *\r\n"
+                                   "Cache-Control: no-store\r\n"
+                                   "Connection: close\r\n\r\n";
     uint8_t *buf = alloc_big(JPEG_MAX + 128);
-    bool ok = buf && send_all(req, (const uint8_t *)head, sizeof head - 1);
+    bool ok = buf && (raw ? send_all(req, (const uint8_t *)head_raw, sizeof head_raw - 1)
+                          : send_all(req, (const uint8_t *)head_mjpeg, sizeof head_mjpeg - 1));
     viewer_stats_t st = {0};
     int64_t window_t0 = esp_timer_get_time();
     uint32_t last_seq = 0;

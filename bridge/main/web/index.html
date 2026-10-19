@@ -27,6 +27,8 @@
   .screen video, .screen canvas { position:absolute; inset:0; margin:auto; width:100%; height:100%; display:block; object-fit:fill; background:#000; }
   .screen canvas { z-index:1; }
   .screen.via-video canvas { visibility:hidden; }
+  .screen img { position:absolute; inset:0; margin:auto; width:100%; height:100%; display:none; object-fit:fill; z-index:1; }
+  .screen.img-mode img { display:block; }
   .overlay { position:absolute; z-index:2; inset:auto 8px 8px 8px; display:flex; justify-content:space-between; font:12px/1.2 ui-monospace, Menlo, Consolas, monospace; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none; }
   /* Full screen: iPhone uses its native video player (like a YouTube video);
    * desktop, Android and iPad the browser's full screen; else the picture
@@ -37,9 +39,9 @@
   .screen:fullscreen { border-radius:0; }
   .screen:-webkit-full-screen { border-radius:0; width:100%; height:100%; }
   .screen.fs, .screen.fs-native { container-type:size; }
-  .screen.fs video, .screen.fs canvas, .screen.fs-native video, .screen.fs-native canvas {
+  .screen.fs video, .screen.fs canvas, .screen.fs img, .screen.fs-native video, .screen.fs-native canvas, .screen.fs-native img {
     width:min(100vw, 133.33vh); height:min(75vw, 100vh); width:min(100cqw, 133.33cqh); height:min(75cqw, 100cqh); }
-  .screen.fs video, .screen.fs canvas { top:env(safe-area-inset-top); right:env(safe-area-inset-right); bottom:env(safe-area-inset-bottom); left:env(safe-area-inset-left); }
+  .screen.fs video, .screen.fs canvas, .screen.fs img { top:env(safe-area-inset-top); right:env(safe-area-inset-right); bottom:env(safe-area-inset-bottom); left:env(safe-area-inset-left); }
   .screen.fs .overlay { inset:auto calc(env(safe-area-inset-right) + 12px) calc(env(safe-area-inset-bottom) + 10px) calc(env(safe-area-inset-left) + 12px); font-size:13px; }
   .fs-exit { display:none; position:absolute; z-index:3; top:calc(env(safe-area-inset-top) + 10px); right:calc(env(safe-area-inset-right) + 10px);
              background:rgba(0,0,0,.5); color:#fff; border-radius:999px; padding:8px 13px; font-size:16px; line-height:1; }
@@ -56,6 +58,24 @@
   .hint { color:var(--muted); font-size:12px; margin:-4px 0 12px; }
   details + details { margin-top:10px; }
   button.on { box-shadow:inset 0 -3px 0 var(--ok); }
+  /* Main controls: the four everyday buttons; everything else is in Settings. */
+  header .right { display:flex; align-items:center; gap:8px; }
+  .icon-btn { background:var(--panel); color:var(--muted); border-radius:999px; padding:7px 11px; font-size:17px; line-height:1; }
+  .icon-btn[aria-expanded="true"] { background:var(--btn-active); color:var(--text); }
+  .main-controls { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px; margin:14px 0 6px; }
+  .main-controls button { display:flex; flex-direction:column; align-items:center; gap:3px; padding:15px 4px 12px; border-radius:12px; font-size:16px; }
+  .main-controls .sub { font-size:11px; font-weight:500; color:var(--muted); white-space:nowrap; }
+  .pick { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+          padding:15px 4px 12px; border-radius:12px; background:var(--btn); font-size:16px; font-weight:600; }
+  .pick:active, .pick:focus-within { background:var(--btn-active); }
+  .pick .value { white-space:nowrap; }
+  .pick select { position:absolute; inset:0; width:100%; height:100%; opacity:0; font-size:16px; cursor:pointer; }
+  .toast { min-height:18px; margin:0 0 10px; font-size:13px; color:var(--muted); text-align:center; }
+  .settings { background:var(--panel); border-radius:12px; padding:12px 12px 2px; margin:4px 0 10px; }
+  .settings h2.section { margin:4px 0 8px; }
+  .settings .controls { margin:0 0 14px; }
+  .settings .hint { margin:-6px 0 12px; }
+  .settings details { background:var(--bg); margin-bottom:12px; }
   footer { margin-top:14px; color:var(--muted); font-size:12px; }
   footer a { color:var(--muted); }
 </style>
@@ -64,42 +84,61 @@
 <main>
   <header>
     <h1>VRX Bridge</h1>
-    <span id="badge" class="badge warn">connecting</span>
+    <div class="right">
+      <span id="badge" class="badge warn">connecting</span>
+      <button id="settings-btn" class="icon-btn" aria-expanded="false" aria-controls="settings" aria-label="Settings" title="Settings">&#9881;&#xFE0E;</button>
+    </div>
   </header>
   <div class="screen" id="screen">
     <video id="video" muted autoplay playsinline webkit-playsinline disablepictureinpicture aria-label="Live video from the C5VRX receiver"></video>
     <canvas id="canvas" width="640" height="480" aria-hidden="true"></canvas>
+    <img id="mjpeg" alt="">
     <div class="overlay"><span id="ov-left"></span><span id="ov-right"></span></div>
     <button class="fs-exit" id="fs-exit" aria-label="Exit full screen" title="Exit full screen">&#10005;</button>
   </div>
-  <div class="controls">
-    <button data-cmd="t" title="C5 input / NTSC test pattern / PAL test pattern">Source</button>
-    <button data-cmd="c" title="Auto contrast or standard levels">Levels</button>
-    <button id="snap" title="Open the current frame as a JPEG">Snapshot</button>
-    <button id="full" title="Full screen">Full</button>
-    <button data-cmd="j" title="Move picture left">&#9664;</button>
-    <button data-cmd="l" title="Move picture right">&#9654;</button>
-    <button data-cmd="i" title="Move picture up">&#9650;</button>
-    <button data-cmd="k" title="Move picture down">&#9660;</button>
-    <button data-cmd="f" id="btn-filter" title="Median filter removes the white/black speckles (FM clicks)">Despeckle</button>
-    <button data-cmd="d" id="btn-denoise" title="Average still areas over frames; moving areas stay sharp">Denoise</button>
+  <div class="main-controls">
+    <label class="pick" title="Band">
+      <span class="value" id="band-value">Band</span><span class="sub" id="band-sub">pick band</span>
+      <select id="band-select" aria-label="Band"></select>
+    </label>
+    <label class="pick" title="Channel">
+      <span class="value" id="ch-value">Ch</span><span class="sub" id="ch-sub">pick channel</span>
+      <select id="ch-select" aria-label="Channel"></select>
+    </label>
+    <button data-c5="s" data-name="Auto" title="Scan all 48 channels and tune to the strongest VTX">Auto<span class="sub">find VTX</span></button>
+    <button id="full" title="Full screen">Full<span class="sub">full screen</span></button>
   </div>
-  <h2 class="section">Receiver</h2>
-  <div class="controls">
-    <button data-c5="c" title="Next channel in the band">Channel &#9656;</button>
-    <button data-c5="b" title="Next band">Band &#9656;</button>
-    <button data-c5="s" title="Scan all 48 channels, pick the strongest">Scan</button>
-    <button data-c5="o" title="Open or close the receiver menu (shows in the video)">Menu</button>
-    <button data-c5="n" title="Menu: next item">Next</button>
-    <button data-c5="x" title="Menu: do the item">Select</button>
-    <button data-c5="e" title="Close the menu">Close</button>
-    <button data-c5="v" title="Receiver video standard AUTO / NTSC / PAL">Video std</button>
-  </div>
-  <p class="hint" id="c5hint">Receiver keys go to the C5 over the link wire (S3 D8 &rarr; C5 GPIO2). Its menu, channel and scan results appear in the picture.</p>
-  <details>
-    <summary>Receiver details</summary>
-    <table id="details"></table>
-  </details>
+  <p class="toast" id="toast" aria-live="polite"></p>
+  <section class="settings" id="settings" hidden>
+    <h2 class="section">Picture</h2>
+    <div class="controls">
+      <button data-cmd="f" id="btn-filter" title="Median filter removes the white/black speckles (FM clicks)">Despeckle</button>
+      <button data-cmd="d" id="btn-denoise" title="Average still areas over frames; moving areas stay sharp">Denoise</button>
+      <button data-cmd="c" title="Auto contrast or standard levels">Levels</button>
+      <button id="snap" title="Open the current frame as a JPEG">Snapshot</button>
+    </div>
+    <h2 class="section">Picture position</h2>
+    <div class="controls">
+      <button data-cmd="j" title="Move picture left">&#9664;</button>
+      <button data-cmd="l" title="Move picture right">&#9654;</button>
+      <button data-cmd="i" title="Move picture up">&#9650;</button>
+      <button data-cmd="k" title="Move picture down">&#9660;</button>
+    </div>
+    <h2 class="section">Receiver menu</h2>
+    <div class="controls">
+      <button data-c5="o" data-name="Menu" title="Open or close the receiver menu (shows in the video)">Menu</button>
+      <button data-c5="n" data-name="Next" title="Menu: next item">Next</button>
+      <button data-c5="x" data-name="Select" title="Menu: do the item">Select</button>
+      <button data-c5="e" data-name="Close" title="Close the menu">Close</button>
+      <button data-c5="v" data-name="Video std" title="Receiver video standard AUTO / NTSC / PAL">Video std</button>
+      <button data-cmd="t" title="C5 input / NTSC test pattern / PAL test pattern">Test pattern</button>
+    </div>
+    <p class="hint">Band, Channel, Auto and the menu keys go to the receiver over the link wire (S3 D8 &rarr; C5 GPIO2); its channel, menu and scan results show in the picture.</p>
+    <details>
+      <summary>Details</summary>
+      <table id="details"></table>
+    </details>
+  </section>
   <footer>Video decoded from a <a href="https://github.com/Twotoz/C5VRX">C5VRX</a> receiver (by Twotoz and the C5VRX contributors) and streamed by an ESP32-S3. VRX Bridge is an independent add-on, not part of or endorsed by C5VRX.</footer>
 </main>
 <script>
@@ -130,14 +169,14 @@
   video.addEventListener('webkitendfullscreen', playVideo);
   playVideo();
 
-  let latest = null, decoding = false, shown = 0;
+  let latest = null, decoding = false, shown = 0, everDrawn = false, imgMode = false, abort = null;
   function drawNewest() {
     if (decoding || !latest) return;
     const blob = new Blob([latest], { type: 'image/jpeg' });
     latest = null;
     decoding = true;
     const done = () => { decoding = false; drawNewest(); };
-    const paint = src => { ctx.drawImage(src, 0, 0, canvas.width, canvas.height); shown++; };
+    const paint = src => { ctx.drawImage(src, 0, 0, canvas.width, canvas.height); shown++; everDrawn = true; };
     if (window.createImageBitmap) {
       createImageBitmap(blob).then(bmp => { paint(bmp); if (bmp.close) bmp.close(); }).catch(() => {}).finally(done);
     } else {
@@ -154,8 +193,12 @@
   };
   const join = (a, b) => { const c = new Uint8Array(a.length + b.length); c.set(a); c.set(b, a.length); return c; };
   const text = new TextDecoder();
+  /* raw=1: the same bytes labelled as plain binary; Safari handles a
+   * multipart/x-mixed-replace response itself and closed this fetch. */
   async function readStream() {
-    const res = await fetch(`http://${location.hostname}:81/stream?t=${Date.now()}`, { cache: 'no-store' });
+    abort = window.AbortController ? new AbortController() : null;
+    const res = await fetch(`http://${location.hostname}:81/stream?raw=1&t=${Date.now()}`,
+                            abort ? { signal: abort.signal } : {});
     if (!res.ok || !res.body) throw new Error('no stream');
     const reader = res.body.getReader();
     let buf = new Uint8Array(0);
@@ -178,18 +221,103 @@
       if (buf.length > (1 << 20)) buf = new Uint8Array(0);   /* lost the framing: start over */
     }
   }
-  const runStream = () => readStream().catch(() => {}).finally(() => setTimeout(runStream, 1000));
+  const runStream = () => {
+    if (imgMode) return;
+    readStream().catch(() => {}).finally(() => { if (!imgMode) setTimeout(runStream, 1000); });
+  };
   runStream();
+  /* No frame drawn this way within 6 s: the browser's own MJPEG <img> instead
+   * (no native player then; Full covers the window or uses the browser's). */
+  const useImg = () => {
+    if (imgMode) return;
+    imgMode = true;
+    if (abort) abort.abort();
+    view.classList.add('img-mode');
+    const mjpeg = document.getElementById('mjpeg');
+    const start = () => { mjpeg.src = `http://${location.hostname}:81/stream?t=${Date.now()}`; };
+    mjpeg.onerror = () => setTimeout(start, 1000);
+    start();
+  };
+  setTimeout(() => { if (!everDrawn) useImg(); }, 6000);
 
   document.querySelectorAll('button[data-cmd]').forEach(b => {
     b.addEventListener('click', () => fetch('/cmd?c=' + b.dataset.cmd).then(poll).catch(() => {}));
   });
-  const hint = document.getElementById('c5hint');
+  const toast = document.getElementById('toast');
+  let toastTimer = null;
+  const say = msg => {
+    toast.textContent = msg;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast.textContent = ''; }, 3500);
+  };
   document.querySelectorAll('button[data-c5]').forEach(b => {
     b.addEventListener('click', () => fetch('/c5?k=' + b.dataset.c5)
-      .then(r => { hint.textContent = r.ok ? `Sent "${b.textContent.trim()}" to the receiver.` : 'The bridge did not accept that key.'; })
-      .catch(() => { hint.textContent = 'Bridge not reachable.'; }));
+      .then(r => say(!r.ok ? 'The bridge did not accept that key.'
+                    : b.dataset.c5 === 's' ? (autoPressed = true, showTuned(-1, -1, 'auto'), 'Scanning all channels: the receiver tunes to the strongest VTX.')
+                    : `${b.dataset.name} sent to the receiver.`))
+      .catch(() => say('Bridge not reachable.')));
   });
+  /* Band and channel: straight to one channel (/c5?ch=N, N = band * 8 +
+   * channel, C5VRX's table). The bridge reports the channel it last set; it
+   * does not know it after Auto or a step from the receiver's own button. */
+  const BANDS = [
+    ['Race', 'Raceband R', [5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917]],
+    ['A', 'Boscam A', [5865, 5845, 5825, 5805, 5785, 5765, 5745, 5725]],
+    ['B', 'Boscam B', [5733, 5752, 5771, 5790, 5809, 5828, 5847, 5866]],
+    ['E', 'Boscam E', [5705, 5685, 5665, 5645, 5885, 5905, 5925, 5945]],
+    ['F', 'Fatshark F', [5740, 5760, 5780, 5800, 5820, 5840, 5860, 5880]],
+    ['Low', 'Lowband L', [5362, 5399, 5436, 5473, 5510, 5547, 5584, 5621]],
+  ];
+  const bandSel = document.getElementById('band-select'), chSel = document.getElementById('ch-select');
+  const opt = (value, text, disabled) => {
+    const o = document.createElement('option');
+    o.value = value; o.textContent = text; o.disabled = !!disabled;
+    return o;
+  };
+  bandSel.append(opt('', 'Band', true), ...BANDS.map((b, i) => opt(i, b[1])));
+  let tuned = { band: -1, ch: -1 };
+  const fillChannels = band => {
+    const freqs = BANDS[band < 0 ? 0 : band][2];
+    chSel.replaceChildren(opt('', 'Channel', true), ...freqs.map((f, i) => opt(i, `${i + 1}  ·  ${f} MHz`)));
+  };
+  const showTuned = (band, ch, note) => {
+    tuned = { band, ch };
+    fillChannels(band);
+    const known = band >= 0 && ch >= 0;
+    document.getElementById('band-value').textContent = band >= 0 ? BANDS[band][0] : 'Band';
+    document.getElementById('band-sub').textContent = band >= 0 ? 'band' : (note || 'pick band');
+    document.getElementById('ch-value').textContent = known ? String(ch + 1) : 'Ch';
+    document.getElementById('ch-sub').textContent = known ? `${BANDS[band][2][ch]} MHz` : (note || 'pick channel');
+    bandSel.value = band >= 0 ? String(band) : '';
+    chSel.value = known ? String(ch) : '';
+  };
+  const tune = (band, ch) => {
+    autoPressed = false;
+    showTuned(band, ch);
+    fetch('/c5?ch=' + (band * 8 + ch))
+      .then(r => say(r.ok ? `Tuning to ${BANDS[band][0]} ${ch + 1} (${BANDS[band][2][ch]} MHz).` : 'The bridge did not accept that channel.'))
+      .catch(() => say('Bridge not reachable.'));
+  };
+  bandSel.onchange = () => tune(+bandSel.value, tuned.ch >= 0 ? tuned.ch : 0);
+  chSel.onchange = () => tune(tuned.band >= 0 ? tuned.band : 0, +chSel.value);
+  showTuned(-1, -1);
+  let lastReported = -2, autoPressed = false;
+  const syncTuned = c => {   /* from /status: the channel the bridge last set */
+    if (c === lastReported) return;
+    lastReported = c;
+    if (c >= 0) showTuned(Math.floor(c / 8), c % 8);
+    else showTuned(-1, -1, autoPressed ? 'auto' : undefined);
+  };
+
+  /* Settings: closed by default; this device remembers the last state. */
+  const settings = document.getElementById('settings'), gear = document.getElementById('settings-btn');
+  const showSettings = on => {
+    settings.hidden = !on;
+    gear.setAttribute('aria-expanded', String(on));
+    try { localStorage.setItem('vrx-settings', on ? '1' : '0'); } catch (e) { /* private mode */ }
+  };
+  gear.onclick = () => showSettings(settings.hidden);
+  try { if (localStorage.getItem('vrx-settings') === '1') showSettings(true); } catch (e) { /* private mode */ }
   document.getElementById('snap').onclick = () => window.open('/snapshot.jpg?t=' + Date.now(), '_blank');
   /* Full screen: the browser's own for the picture area where it exists
    * (desktop, Android, iPad); on iPhone, which has none for page elements,
@@ -202,7 +330,7 @@
   const enterFull = () => {
     const req = view.requestFullscreen || view.webkitRequestFullscreen;
     if (!req || !(document.fullscreenEnabled || document.webkitFullscreenEnabled)) {
-      if (viaVideo && video.webkitEnterFullscreen) {
+      if (viaVideo && !imgMode && video.webkitEnterFullscreen) {
         try {
           playVideo();
           video.webkitEnterFullscreen();
@@ -265,8 +393,9 @@
       else if (s.h_locked) { text = 'NO FIELD SYNC'; cls = 'warn'; }
       badge.textContent = text; badge.className = 'badge ' + cls;
       document.getElementById('ov-left').textContent = text;
-      document.getElementById('ov-right').textContent = `${shownRate} fps`;
+      document.getElementById('ov-right').textContent = `${imgMode ? s.fps.toFixed(0) : shownRate} fps`;
       rows.forEach(([, f], i) => { document.getElementById('r' + i).textContent = f(s); });
+      if (typeof s.c5_channel === 'number') syncTuned(s.c5_channel);
       const bf = document.getElementById('btn-filter'), bd = document.getElementById('btn-denoise');
       bf.textContent = s.filter === 'median' ? 'Despeckle on' : 'Despeckle off';
       bf.classList.toggle('on', s.filter === 'median');

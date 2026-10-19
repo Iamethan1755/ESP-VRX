@@ -257,7 +257,7 @@ int bridge_status_json(char *buf, size_t len)
         "\"levels\":\"%s\",\"filter\":\"%s\",\"denoise\":%s,"
         "\"fields\":%lu,\"overruns\":%lu,\"lock_losses\":%lu,\"h_offset_us\":%.1f,"
         "\"v_offset\":%d,\"msps\":%.2f,\"load\":%.2f,\"fps\":%.1f,\"jpeg_bytes\":%lu,\"frames\":%lu,"
-        "\"clients\":%d,\"stations\":%d,\"c5_keys\":%lu,\"heap_int\":%lu,\"heap_psram\":%lu,\"uptime\":%lu,"
+        "\"clients\":%d,\"stations\":%d,\"c5_keys\":%lu,\"c5_channel\":%d,\"heap_int\":%lu,\"heap_psram\":%lu,\"uptime\":%lu,"
         "\"reset\":\"%s\"}",
         bridge_source_name(s.source), s.capture_ok ? "true" : "false", v->h_locked ? "true" : "false",
         v->v_locked ? "true" : "false", v->std == VIDEO_STD_PAL ? "PAL" : "NTSC", v->lines_per_field, v->line_us,
@@ -265,7 +265,7 @@ int bridge_status_json(char *buf, size_t len)
         v->levels == VIDEO_LEVELS_AUTO ? "auto" : "std", v->filter == VIDEO_FILTER_MEDIAN ? "median" : "smooth",
         stream_denoise() ? "true" : "false", (unsigned long)v->fields, (unsigned long)v->overruns,
         (unsigned long)v->lock_losses, v->h_offset_tenths_us / 10.0, v->v_offset_lines, s.sample_msps,
-        s.decode_load, s.fps, (unsigned long)s.jpeg_bytes, (unsigned long)s.jpeg_frames, s.clients, s.stations, (unsigned long)s.c5_keys,
+        s.decode_load, s.fps, (unsigned long)s.jpeg_bytes, (unsigned long)s.jpeg_frames, s.clients, s.stations, (unsigned long)s.c5_keys, c5link_channel(),
         (unsigned long)s.heap_internal, (unsigned long)s.heap_psram, (unsigned long)s.uptime_s,
         bridge_reset_reason());
     return n < (int)len ? n : (int)len - 1;

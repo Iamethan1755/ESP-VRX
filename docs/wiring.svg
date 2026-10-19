@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1450" width="1400" height="1450" font-family="'Segoe UI', Arial, sans-serif">
 <rect width="1400" height="1450" fill="#FFFFFF"/>
 <text x="40" y="48" font-size="28" font-weight="700" fill="#1D2733" text-anchor="start">VRX Bridge: wiring</text>
-<text x="40" y="74" font-size="15" font-weight="normal" fill="#8A94A3" text-anchor="start">XIAO ESP32-C5 (5.8 GHz receiver, C5VRX) to XIAO ESP32-S3 (Wi-Fi bridge). Seven wires carry the video; one optional wire lets the phone change channels.</text>
+<text x="40" y="74" font-size="15" font-weight="normal" fill="#8A94A3" text-anchor="start">XIAO ESP32-C5 (5.8 GHz receiver, C5VRX) to XIAO ESP32-S3 (Wi-Fi bridge). Seven wires: five video bits, the phone's receiver keys (on the bit 0 wire) and ground.</text>
 <rect x="60" y="130" width="300" height="460" rx="14" fill="#F3F6FB" stroke="#3B4A5F" stroke-width="2"/>
 <rect x="1040" y="130" width="300" height="460" rx="14" fill="#F3F6FB" stroke="#3B4A5F" stroke-width="2"/>
 <text x="82" y="166" font-size="21" font-weight="700" fill="#1D2733" text-anchor="start">XIAO ESP32-C5</text>
@@ -12,13 +12,13 @@
 <text x="124" y="108" font-size="13" font-weight="normal" fill="#1D2733" text-anchor="start">5.8 GHz antenna (U.FL)</text>
 <path d="M1290 130V106M1281 94L1290 106L1299 94" stroke="#1D2733" stroke-width="2" fill="none"/>
 <text x="1276" y="108" font-size="13" font-weight="normal" fill="#1D2733" text-anchor="end">2.4 GHz antenna (U.FL), fit it!</text>
-<line x1="360" y1="230" x2="1040" y2="230" stroke="#8B4513" stroke-width="4" stroke-linecap="round"/>
-<path d="M952 223L966 230L952 237Z" fill="#8B4513"/>
-<text x="700" y="222" font-size="13" font-weight="600" fill="#8B4513" text-anchor="middle">bit 0 (LSB)</text>
+<line x1="360" y1="230" x2="1040" y2="230" stroke="#E8590C" stroke-width="4" stroke-linecap="round"/>
+<path d="M462 223L448 230L462 237Z" fill="#E8590C"/>
+<text x="700" y="222" font-size="13" font-weight="600" fill="#E8590C" text-anchor="middle">receiver keys, S3 to C5 (UART; was video bit 0)</text>
 <text x="346" y="235" font-size="15" font-weight="600" fill="#1D2733" text-anchor="end" font-family="Consolas, 'Cascadia Mono', monospace">D4 · GPIO23</text>
 <text x="1054" y="235" font-size="15" font-weight="600" fill="#1D2733" text-anchor="start" font-family="Consolas, 'Cascadia Mono', monospace">D0 · GPIO1</text>
-<circle cx="360" cy="230" r="7.5" fill="#8B4513" stroke="#fff" stroke-width="1.5"/>
-<circle cx="1040" cy="230" r="7.5" fill="#8B4513" stroke="#fff" stroke-width="1.5"/>
+<circle cx="360" cy="230" r="7.5" fill="#E8590C" stroke="#fff" stroke-width="1.5"/>
+<circle cx="1040" cy="230" r="7.5" fill="#E8590C" stroke="#fff" stroke-width="1.5"/>
 <line x1="360" y1="272" x2="1040" y2="272" stroke="#D62728" stroke-width="4" stroke-linecap="round"/>
 <path d="M952 265L966 272L952 279Z" fill="#D62728"/>
 <text x="700" y="264" font-size="13" font-weight="600" fill="#D62728" text-anchor="middle">bit 1</text>
@@ -60,17 +60,7 @@
 <text x="1054" y="487" font-size="15" font-weight="600" fill="#1D2733" text-anchor="start" font-family="Consolas, 'Cascadia Mono', monospace">GND</text>
 <circle cx="360" cy="482" r="7.5" fill="#222222" stroke="#fff" stroke-width="1.5"/>
 <circle cx="1040" cy="482" r="7.5" fill="#222222" stroke="#fff" stroke-width="1.5"/>
-<line x1="360" y1="546" x2="1040" y2="546" stroke="#E8590C" stroke-width="3" stroke-dasharray="10 7"/>
-<rect x="670.0" y="537" width="60" height="18" rx="2" fill="#fff" stroke="#E8590C" stroke-width="2"/>
-<text x="700.0" y="551" font-size="12" font-weight="600" fill="#E8590C" text-anchor="middle">1 kΩ</text>
-<path d="M462 539L448 546L462 553Z" fill="#E8590C"/>
-<text x="700" y="530" font-size="13" font-weight="600" fill="#E8590C" text-anchor="middle">optional: phone channel control (S3 sends keys, UART 115200)</text>
-<text x="346" y="543" font-size="15" font-weight="600" fill="#1D2733" text-anchor="end" font-family="Consolas, 'Cascadia Mono', monospace">GPIO2</text>
-<text x="346" y="560" font-size="12" font-weight="normal" fill="#8A94A3" text-anchor="end">MTMS pad, back</text>
-<text x="1054" y="543" font-size="15" font-weight="600" fill="#1D2733" text-anchor="start" font-family="Consolas, 'Cascadia Mono', monospace">D8 · GPIO7</text>
-<text x="1054" y="560" font-size="12" font-weight="normal" fill="#8A94A3" text-anchor="start">UART TX</text>
-<circle cx="360" cy="546" r="7.5" fill="#E8590C" stroke="#fff" stroke-width="1.5"/>
-<circle cx="1040" cy="546" r="7.5" fill="#E8590C" stroke="#fff" stroke-width="1.5"/>
+<text x="700" y="546" font-size="13" font-weight="normal" fill="#8A94A3" text-anchor="middle">No other wires: the C5's back pads and S3 D8 stay free.</text>
 <text x="700" y="616" font-size="13" font-weight="normal" fill="#8A94A3" text-anchor="middle">Video flows C5 → S3 (the C5's 6-bit DAC bus, 20 MS/s). The S3 inputs only listen: goggles on the DAC keep working.</text>
 <text x="40" y="678" font-size="19" font-weight="700" fill="#1D2733" text-anchor="start">Where the pins are: top view, USB-C at the top</text>
 <text x="325.0" y="708" font-size="17" font-weight="700" fill="#1D2733" text-anchor="middle">XIAO ESP32-C5</text>
@@ -96,9 +86,9 @@
 <path d="M236 888L244 896M236 896L244 888" stroke="#C92A2A" stroke-width="2"/>
 <text x="254" y="897" font-size="12" font-weight="700" fill="#E9EEF3" text-anchor="start">D3</text>
 <text x="226" y="897" font-size="13" font-weight="600" fill="#C92A2A" text-anchor="end">D3 (GPIO7) · leave free (IQ)</text>
-<circle cx="240" cy="926" r="7.5" fill="#8B4513" stroke="#fff" stroke-width="1.5"/>
+<circle cx="240" cy="926" r="7.5" fill="#E8590C" stroke="#fff" stroke-width="1.5"/>
 <text x="254" y="931" font-size="12" font-weight="700" fill="#E9EEF3" text-anchor="start">D4</text>
-<text x="226" y="931" font-size="13" font-weight="600" fill="#8B4513" text-anchor="end">D4 (GPIO23) · bit 0</text>
+<text x="226" y="931" font-size="13" font-weight="600" fill="#E8590C" text-anchor="end">D4 (GPIO23) · keys in (was bit 0)</text>
 <circle cx="240" cy="960" r="7.5" fill="#D62728" stroke="#fff" stroke-width="1.5"/>
 <text x="254" y="965" font-size="12" font-weight="700" fill="#E9EEF3" text-anchor="start">D5</text>
 <text x="226" y="965" font-size="13" font-weight="600" fill="#D62728" text-anchor="end">D5 (GPIO24) · bit 1</text>
@@ -127,8 +117,8 @@
 <circle cx="410" cy="994" r="7.5" fill="#C9A400" stroke="#fff" stroke-width="1.5"/>
 <text x="396" y="999" font-size="12" font-weight="700" fill="#E9EEF3" text-anchor="end">D7</text>
 <text x="424" y="999" font-size="13" font-weight="600" fill="#C9A400" text-anchor="start">D7 (GPIO12) · bit 3</text>
-<text x="325.0" y="1060" font-size="13" font-weight="normal" fill="#1D2733" text-anchor="middle">Back side: GPIO2 = MTMS pad ← link wire (1 kΩ)</text>
-<text x="325.0" y="1079" font-size="13" font-weight="normal" fill="#8A94A3" text-anchor="middle">GPIO3–5 pads carry IQ: leave them free</text>
+<text x="325.0" y="1060" font-size="13" font-weight="normal" fill="#1D2733" text-anchor="middle">Back side: leave all pads free</text>
+<text x="325.0" y="1079" font-size="13" font-weight="normal" fill="#8A94A3" text-anchor="middle">(GPIO3–5 carry IQ)</text>
 <text x="1075.0" y="708" font-size="17" font-weight="700" fill="#1D2733" text-anchor="middle">XIAO ESP32-S3</text>
 <text x="1075.0" y="726" font-size="12" font-weight="normal" fill="#8A94A3" text-anchor="middle">Wi-Fi bridge</text>
 <rect x="990" y="750" width="170" height="280" rx="12" fill="#2E3A48" stroke="#1D2733" stroke-width="2"/>
@@ -136,9 +126,9 @@
 <text x="1075.0" y="756" font-size="10" font-weight="700" fill="#2E3A48" text-anchor="middle">USB-C</text>
 <rect x="1035.0" y="820" width="80" height="80" rx="6" fill="#3E4B5B" stroke="#55647A"/>
 <text x="1075.0" y="865" font-size="12" font-weight="600" fill="#C9D2DC" text-anchor="middle">ESP32-S3</text>
-<circle cx="990" cy="790" r="7.5" fill="#8B4513" stroke="#fff" stroke-width="1.5"/>
+<circle cx="990" cy="790" r="7.5" fill="#E8590C" stroke="#fff" stroke-width="1.5"/>
 <text x="1004" y="795" font-size="12" font-weight="700" fill="#E9EEF3" text-anchor="start">D0</text>
-<text x="976" y="795" font-size="13" font-weight="600" fill="#8B4513" text-anchor="end">D0 (GPIO1) · bit 0</text>
+<text x="976" y="795" font-size="13" font-weight="600" fill="#E8590C" text-anchor="end">D0 (GPIO1) · keys out (was bit 0)</text>
 <circle cx="990" cy="824" r="7.5" fill="#D62728" stroke="#fff" stroke-width="1.5"/>
 <text x="1004" y="829" font-size="12" font-weight="700" fill="#E9EEF3" text-anchor="start">D1</text>
 <text x="976" y="829" font-size="13" font-weight="600" fill="#D62728" text-anchor="end">D1 (GPIO2) · bit 1</text>
@@ -173,9 +163,9 @@
 <circle cx="1160" cy="926" r="7.5" fill="#fff" stroke="#8A94A3" stroke-width="2"/>
 <text x="1146" y="931" font-size="12" font-weight="700" fill="#E9EEF3" text-anchor="end">D9</text>
 <text x="1174" y="931" font-size="13" font-weight="normal" fill="#8A94A3" text-anchor="start">D9 (GPIO8) · free</text>
-<circle cx="1160" cy="960" r="7.5" fill="#E8590C" stroke="#fff" stroke-width="1.5"/>
+<circle cx="1160" cy="960" r="7.5" fill="#fff" stroke="#8A94A3" stroke-width="2"/>
 <text x="1146" y="965" font-size="12" font-weight="700" fill="#E9EEF3" text-anchor="end">D8</text>
-<text x="1174" y="965" font-size="13" font-weight="600" fill="#E8590C" text-anchor="start">D8 (GPIO7) · link to C5 GPIO2</text>
+<text x="1174" y="965" font-size="13" font-weight="normal" fill="#8A94A3" text-anchor="start">D8 (GPIO7) · free</text>
 <circle cx="1160" cy="994" r="7.5" fill="#fff" stroke="#8A94A3" stroke-width="2"/>
 <text x="1146" y="999" font-size="12" font-weight="700" fill="#E9EEF3" text-anchor="end">D7</text>
 <text x="1174" y="999" font-size="13" font-weight="normal" fill="#8A94A3" text-anchor="start">D7 (GPIO44) · free</text>
@@ -187,7 +177,7 @@
 <circle cx="648" cy="814" r="7.5" fill="#222222" stroke="#fff" stroke-width="1.5"/>
 <text x="666" y="819" font-size="13" font-weight="normal" fill="#1D2733" text-anchor="start">ground</text>
 <circle cx="648" cy="842" r="7.5" fill="#E8590C" stroke="#fff" stroke-width="1.5"/>
-<text x="666" y="847" font-size="13" font-weight="normal" fill="#1D2733" text-anchor="start">key link (opt.)</text>
+<text x="666" y="847" font-size="13" font-weight="normal" fill="#1D2733" text-anchor="start">key line</text>
 <circle cx="648" cy="870" r="7.5" fill="#fff" stroke="#C92A2A" stroke-width="2"/>
 <path d="M644 866L652 874M644 874L652 866" stroke="#C92A2A" stroke-width="2"/>
 <text x="666" y="875" font-size="13" font-weight="normal" fill="#1D2733" text-anchor="start">never connect</text>
@@ -243,8 +233,8 @@
 <text x="760" y="1245" font-size="14" font-weight="normal" fill="#1D2733" text-anchor="start">•  Antennas on both boards before power, kept apart.</text>
 <text x="760" y="1268" font-size="14" font-weight="normal" fill="#1D2733" text-anchor="start">•  C5 D0–D3, D10 and the GPIO3–5 pads: never connect.</text>
 <text x="760" y="1291" font-size="14" font-weight="normal" fill="#1D2733" text-anchor="start">•  S3 GPIO42 back pad: never connect (sample clock).</text>
-<text x="760" y="1314" font-size="14" font-weight="normal" fill="#1D2733" text-anchor="start">•  Link wire: only with this repo's receiver build;</text>
-<text x="772" y="1337" font-size="14" font-weight="normal" fill="#1D2733" text-anchor="start">the 1 kΩ stops the S3 powering an unpowered C5.</text>
+<text x="760" y="1314" font-size="14" font-weight="normal" fill="#1D2733" text-anchor="start">•  Keys on D4: flash this repo's receiver build first,</text>
+<text x="772" y="1337" font-size="14" font-weight="normal" fill="#1D2733" text-anchor="start">then the S3 (the S3 drives D0 only while sending).</text>
 <text x="760" y="1360" font-size="14" font-weight="normal" fill="#1D2733" text-anchor="start">•  Self-test (S3 console L) only with D0–D5 disconnected;</text>
 <text x="772" y="1383" font-size="14" font-weight="normal" fill="#1D2733" text-anchor="start">it refuses if it sees the C5 driving them.</text>
 <text x="1370" y="1434" font-size="11" font-weight="normal" fill="#8A94A3" text-anchor="end">VRX Bridge · tools/make_wiring_svg.py · C5VRX by Twotoz and the C5VRX contributors</text>

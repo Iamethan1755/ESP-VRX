@@ -59,8 +59,19 @@ menu "VRX Bridge"
         int "GPIO for video bit 5 (C5 D9)"
         default 6
 
+    config BRIDGE_KEYS_ON_D0
+        bool "Receiver keys on the video bit 0 wire (no extra wire)"
+        default y
+        help
+            The keys (band, channel, scan, menu) go to the C5 over the wire of
+            video bit 0 (S3 D0 to C5 D4): the receiver (wifi-bridge branch,
+            BRIDGE_KEYS_ON_D4) then listens on D4 instead of outputting bit 0,
+            and the video arrives with 5 bits. Off: a separate wire from
+            BRIDGE_GPIO_C5_TX through 1 kOhm to the C5's GPIO2 pad (back side).
+
     config BRIDGE_GPIO_C5_TX
         int "GPIO sending menu/channel keys to the C5 (UART TX)"
+        depends on !BRIDGE_KEYS_ON_D0
         default 7
         help
             Wire this pin (D8 on the XIAO ESP32-S3) through a 1 kOhm resistor

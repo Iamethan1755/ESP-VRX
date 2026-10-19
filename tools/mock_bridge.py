@@ -45,7 +45,7 @@ def main() -> None:
               "white": 40.0, "levels": "auto", "filter": "median", "denoise": True, "fields": 0, "overruns": 0,
               "lock_losses": 0, "h_offset_us": 0.0, "v_offset": 0, "msps": 20.0, "load": 0.6, "fps": a.fps,
               "jpeg_bytes": 0, "frames": 0, "clients": 0, "stations": 1, "c5_keys": 0, "heap_int": 140000,
-              "heap_psram": 7900000, "uptime": 0, "reset": "mock"}
+              "heap_psram": 7900000, "uptime": 0, "reset": "mock", "c5_channel": -1}
     t0 = time.time()
 
     class Page(http.server.BaseHTTPRequestHandler):
@@ -69,6 +69,12 @@ def main() -> None:
                 self.reply(json.dumps(status).encode(), "application/json")
             elif path == "/snapshot.jpg":
                 self.reply(frame(0, w, h), "image/jpeg")
+            elif path == "/c5" and "ch=" in self.path:
+                status["c5_channel"] = int(self.path.split("ch=")[1].split("&")[0])
+                self.reply(b"ok", "text/plain")
+            elif path == "/c5" and "k=s" in self.path:
+                status["c5_channel"] = -1
+                self.reply(b"ok", "text/plain")
             elif path in ("/cmd", "/c5"):
                 self.reply(b"ok", "text/plain")
             else:
@@ -82,7 +88,11 @@ def main() -> None:
             if not self.path.startswith("/stream"):
                 return self.send_error(404)
             self.send_response(200)
-            self.send_header("Content-Type", f"multipart/x-mixed-replace;boundary={BOUNDARY}")
+            if "raw=1" in self.path:   # like the bridge: plain binary for the page's reader
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("X-Content-Type-Options", "nosniff")
+            else:
+                self.send_header("Content-Type", f"multipart/x-mixed-replace;boundary={BOUNDARY}")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Connection", "close")
