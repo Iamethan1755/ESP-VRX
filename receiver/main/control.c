@@ -245,10 +245,19 @@ static void menu_action(void)
     if (s_menu_active) menu_render();
 }
 
+/* c5vrx-wifi bridge: a channel picked while a calibration owns the picture
+ * (boot calibration takes up to two minutes) is applied once it ends. */
+static int s_pending_channel = -1;
+
 static void command(int c, unsigned *menu_idle)
 {
     *menu_idle = 0;
     if (menu_status_active()) {   /* a calibration owns the picture */
+        if (c >= COMMAND_SET_CHANNEL && c < COMMAND_SET_CHANNEL + (int)FPV_CHANNELS) {
+            s_pending_channel = c - COMMAND_SET_CHANNEL;
+            printf("COMMAND set_channel=%d deferred (busy: applied when the calibration ends)\n", s_pending_channel);
+            return;
+        }
         printf("COMMAND %c refused=busy (a calibration or lane test owns the picture; retry when it ends)\n", c);
         return;
     }
@@ -342,6 +351,11 @@ static void control_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(TICK_MS));
         int c;
         for (unsigned k = 0; k < 8 && xQueueReceive(s_commands, &c, 0) == pdTRUE; ++k) command(c, &menu_idle);
+        if (s_pending_channel >= 0 && !menu_status_active()) {
+            const int ch = s_pending_channel;
+            s_pending_channel = -1;
+            command(COMMAND_SET_CHANNEL + ch, &menu_idle);
+        }
 
         /* BOOT button: short = next channel (menu: next item); 0.6 s = menu
          * (menu: do the selected item). */

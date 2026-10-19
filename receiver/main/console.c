@@ -140,9 +140,8 @@ static void console_task(void *arg)
 /* c5vrx-wifi bridge (branch wifi-bridge): menu keys from the ESP32-S3
  * Wi-Fi bridge, UART 115200 8N1, receive only: on D4 (GPIO23, the DAC's bit
  * 0, see BRIDGE_KEYS_ON_D4 in receiver.h) or else on GPIO2 (the MTMS pad).
- * GPIO2 is listed as a strapping pin but selects nothing at boot (ESP32-C5
- * datasheet v1.5 ch. 3: boot mode is GPIO26..28, JTAG source GPIO7, SDIO
- * edges GPIO25/MTDI), so the bridge's idle-high line is harmless at reset.
+ * Neither pin chooses how the C5 boots (GPIO2/MTMS only sets SDIO edges),
+ * so the bridge's line is harmless at reset.
  * Each key comes framed as "<k>" and only the on-screen menu, channel,
  * band and scan keys are accepted: a floating or noisy wire cannot change
  * the channel and can never reach the download or calibration keys.
@@ -161,8 +160,15 @@ static void bridge_key_task(void *arg)
     uint8_t key = 0;
     for (;;) {
         uint8_t c;
-        if (uart_read_bytes(BRIDGE_UART, &c, 1, portMAX_DELAY) != 1) continue;
-        if (state == 1 && c == '#') {
+        /* A frame's bytes follow each other at once and the bridge idles
+         * 2 ms before each frame: a pause ends any half-received frame. */
+        if (uart_read_bytes(BRIDGE_UART, &c, 1, pdMS_TO_TICKS(5)) != 1) {
+            state = 0;
+            continue;
+        }
+        if (state == 1 && c == '<') {
+            /* a stray '<' (line noise) just before a real frame */
+        } else if (state == 1 && c == '#') {
             number = 0;
             state = 3;
         } else if (state == 1) {
