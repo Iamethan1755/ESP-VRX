@@ -8,7 +8,10 @@
 #ifdef ESP_PLATFORM
 #include "esp_attr.h"
 #include "esp_timer.h"
-#define VIDEO_HOT IRAM_ATTR   /* per-sample loops never wait on flash cache */
+/* Per-line code in internal RAM: never waits on the flash cache that core 0
+ * (Wi-Fi, JPEG) shares. noinline: a static function inlined into a caller
+ * in flash ends up in flash (process_line once did, inside video_process). */
+#define VIDEO_HOT IRAM_ATTR __attribute__((noinline))
 #define NOW_US() ((uint32_t)esp_timer_get_time())
 #else
 #define VIDEO_HOT
@@ -28,7 +31,7 @@ static int us_n(uint32_t fs_hz, double us) { return (int)(us * fs_hz / 1e6 + 0.5
  * above the slicer (board recording), so single samples chopped every line
  * sync into short runs and the line lock kept dropping. The average has a
  * third of the noise and still follows a 4.7 us sync edge to the sample. */
-static inline int32_t box_sum(const video_t *v, uint32_t centre)
+static inline __attribute__((always_inline)) int32_t box_sum(const video_t *v, uint32_t centre)
 {
     const uint8_t *r = v->ring;
     const uint32_t m = v->mask;
@@ -38,7 +41,7 @@ static inline int32_t box_sum(const video_t *v, uint32_t centre)
     return s;
 }
 
-static inline bool box_below(const video_t *v, int64_t pos)
+static inline __attribute__((always_inline)) bool box_below(const video_t *v, int64_t pos)
 {
     return (box_sum(v, (uint32_t)pos) << 8) < v->slice_q8 * v->c_box;
 }
@@ -171,7 +174,7 @@ apply:
     if (v->map_hi_q8 - v->map_lo_q8 < 3 * 256) v->map_hi_q8 = v->map_lo_q8 + 3 * 256;
     v->map_off = v->map_lo_q8 >> 6;                       /* Q8 -> Q2 */
     v->map_gain = (255 << 16) / ((v->map_hi_q8 - v->map_lo_q8) >> 6);
-    for (int sum = 0; sum < 1024; sum++) {
+    for (int sum = 0; sum < 256; sum++) {   /* line[] holds 0..252 */
         int p = ((sum - v->map_off) * v->map_gain) >> 16;
         v->lut[sum] = p < 0 ? 0 : p > 255 ? 255 : (uint8_t)p;
     }
@@ -191,8 +194,23 @@ static void deliver(video_t *v)
 
 static void field_start(video_t *v, bool vsync)
 {
-    int n = v->line_in_field;
-    v->lines_per_field = n;
+    const int n = v->line_in_field;
+    /* A field forced while vertically locked (missed sync) keeps the line
+     * phase: it gets the length of the field two back (interlaced fields
+     * alternate 262/263 or 312/313 lines) and the next field continues
+     * from the lines past it. Restarting at 0 put every later field 8
+     * lines late, the real sync was then rejected as early and the picture
+     * rolled for 4-5 fields after any fade or channel change. */
+    const int expect = v->std == VIDEO_STD_PAL ? 312 : 262;
+    int len = n, carry = 0;
+    if (!vsync && v->v_locked) {
+        const int two_back = v->field_len[1];
+        len = two_back >= expect && two_back <= expect + 1 ? two_back : expect;
+        carry = n > len ? n - len : 0;
+    }
+    v->field_len[1] = v->field_len[0];
+    v->field_len[0] = len;
+    v->lines_per_field = len;
     if (vsync) {
         video_std_t s = (n >= 290 && n <= 330) ? VIDEO_STD_PAL
                       : (n >= 245 && n < 290)  ? VIDEO_STD_NTSC : VIDEO_STD_UNKNOWN;
@@ -216,7 +234,7 @@ static void field_start(video_t *v, bool vsync)
     v->fields++;
     deliver(v);   /* a short or free-running field that never reached its last row */
     v->delivered = false;
-    v->line_in_field = 0;
+    v->line_in_field = carry;
 }
 
 static VIDEO_HOT void render_line(video_t *v, int row)
@@ -278,6 +296,10 @@ static VIDEO_HOT void render_line(video_t *v, int row)
 
 static void restart_tracking(video_t *v, int64_t pos)
 {
+    /* The vertical lock stays: the flywheel counted the missed lines, and
+     * the C5's weak sync loses the line lock every few seconds on the board
+     * (2026-10-19), where dropping it let a false vertical sync split the
+     * frame. A field forced after a real loss takes the next sync (v_miss). */
     if (v->h_locked) v->lock_losses++;
     v->h_locked = false;
     v->have_prev = false;
@@ -305,7 +327,9 @@ static VIDEO_HOT void process_line(video_t *v)
     if (broad) {
         v->broad_run++;
     } else {
-        if (v->broad_run >= 2 && (!v->v_locked || v->line_in_field >= expect - 8)) field_start(v, true);
+        /* After a forced field (v_miss) any vertical sync is taken: the
+         * flywheel only guesses the field start. */
+        if (v->broad_run >= 2 && (!v->v_locked || v->v_miss || v->line_in_field >= expect - 8)) field_start(v, true);
         v->broad_run = 0;
     }
     if (v->line_in_field >= (v->v_locked ? expect + 8 : FREE_RUN_LINES)) field_start(v, false);
@@ -456,7 +480,7 @@ void video_reset(video_t *v, uint32_t write_pos)
     v->v_miss = 0;
 }
 
-void video_process(video_t *v, uint32_t write_pos)
+VIDEO_HOT void video_process(video_t *v, uint32_t write_pos)
 {
     v->wr += (int32_t)(write_pos - v->wr32);
     v->wr32 = write_pos;
@@ -464,9 +488,19 @@ void video_process(video_t *v, uint32_t write_pos)
         const int64_t start = v->t_edge >> 8;
         if (start + ((v->period * 3 / 2) >> 8) + v->c_tail > v->wr) break;
         if (start - 4 < v->wr - (int64_t)v->ring_size + v->c_margin) {
-            /* A ring behind the writer: those samples are being overwritten. */
+            /* A ring behind the writer: those samples are being overwritten.
+             * Locked, skip whole lines and keep the lock and the line count
+             * (the picture misses those rows once); unlocked, search anew. */
             v->overruns++;
-            restart_tracking(v, v->wr - (int64_t)v->ring_size / 4);
+            const int64_t target = (v->wr - (int64_t)v->ring_size / 4) << 8;
+            if (v->h_locked && v->period > 0) {
+                const int64_t k = (target - v->t_edge + v->period - 1) / v->period;
+                v->t_edge += k * v->period;
+                v->line_in_field += (int)k;
+                v->lines += (uint32_t)k;
+            } else {
+                restart_tracking(v, target >> 8);
+            }
             continue;
         }
         const uint32_t t0 = NOW_US();

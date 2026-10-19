@@ -70,10 +70,13 @@ def main() -> None:
             elif path == "/snapshot.jpg":
                 self.reply(frame(0, w, h), "image/jpeg")
             elif path == "/c5" and "ch=" in self.path:
-                status["c5_channel"] = int(self.path.split("ch=")[1].split("&")[0])
+                val = self.path.split("ch=")[1].split("&")[0]
+                if not val.isdigit() or int(val) > 47:
+                    return self.send_error(400, "channel 0..47")
+                status["c5_channel"] = int(val)
                 self.reply(b"ok", "text/plain")
-            elif path == "/c5" and "k=s" in self.path:
-                status["c5_channel"] = -1
+            elif path == "/c5" and any(f"k={k}" in self.path for k in "bcsx"):
+                status["c5_channel"] = -1   # like the bridge: the receiver picks the channel
                 self.reply(b"ok", "text/plain")
             elif path in ("/cmd", "/c5"):
                 self.reply(b"ok", "text/plain")

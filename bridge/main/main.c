@@ -31,12 +31,12 @@ static const uint32_t s_fs_hz = CONFIG_BRIDGE_SAMPLE_MHZ * 1000000u;
 static video_t s_video;
 static testpattern_t s_tp;
 static bool s_tp_ready;
-static uint8_t *s_fb[2];
+static uint8_t *s_fb[3];   /* the decoder renders into one, see stream_submit */
 static bridge_source_t s_source;
 static QueueHandle_t s_cmds;
 static volatile uint32_t s_write_pos;
 static uint32_t s_capture_gen;      /* capture restart the decoder is synchronised to */
-static int64_t s_last_submit, s_tp_t0;
+static int64_t s_last_submit, s_last_field, s_tp_t0, s_retry_at;
 
 /* Long raw recording (console 'W'): the decoder task copies the ring to
  * s_rec instead of decoding until it is full, then wakes s_rec_waiter.
@@ -73,19 +73,24 @@ const char *bridge_reset_reason(void)
 
 /* Decoder task: a field is done. Hand it to the JPEG encoder at most
  * CONFIG_BRIDGE_MAX_FPS times a second (always the same field parity at
- * 30 fps, so the picture does not bob) and render into the other buffer.
- * Fields that would be dropped are not drawn at all: at 30 fps that is
- * every other field, half the decoder's work. */
+ * 30 fps, so the picture does not bob) and render into the buffer the
+ * mailbox returns. Fields that would be dropped are not drawn at all: at
+ * 30 fps that is every other field, half the decoder's work. */
 static uint8_t *on_field(uint8_t *done, int w, int h, bool rendered, bool *render_next, void *ctx)
 {
     (void)ctx;
     const int64_t interval = 1000000 / CONFIG_BRIDGE_MAX_FPS - 2000;
-    const int64_t field_us = h > 240 ? 20000 : 16683;
     const int64_t now = esp_timer_get_time();
+    /* The field period as it comes: free-running without a signal, fields
+     * are longer than the standard's, and a fixed value then skipped every
+     * other submit. */
+    int64_t field_us = now - s_last_field;
+    if (field_us < 12000 || field_us > 40000) field_us = h > 240 ? 20000 : 16683;
+    s_last_field = now;
     uint8_t *next = done;
-    if (rendered && now - s_last_submit >= interval && stream_submit(done, w, h)) {
+    if (rendered && now - s_last_submit >= interval) {
+        next = stream_submit(done, w, h);
         s_last_submit = now;
-        next = done == s_fb[0] ? s_fb[1] : s_fb[0];
     }
     *render_next = now + field_us - s_last_submit >= interval;
     return next;
@@ -157,6 +162,15 @@ static void decode_task(void *arg)
                 s_capture_gen = gen;
                 video_reset(&s_video, wp);
                 window_wp = wp;
+            }
+            /* A capture that failed to start (at boot, or after a test) is
+             * retried every 2 s instead of leaving the stream dead. */
+            if (!capture_running() && !s_rec_active) {
+                const int64_t now = esp_timer_get_time();
+                if (now - s_retry_at >= 2000000) {
+                    s_retry_at = now;
+                    if (capture_retry()) ESP_LOGW(TAG, "camera port capture started on retry");
+                }
             }
         } else if (s_tp_ready) {
             testpattern_run_until(&s_tp, (uint32_t)((esp_timer_get_time() - s_tp_t0) * (int64_t)s_fs_hz / 1000000));
@@ -316,17 +330,16 @@ static uint8_t *alloc_frame(void)
 
 void app_main(void)
 {
+    s_cmds = xQueueCreate(16, sizeof(char));   /* before the console: its keys land here */
     console_start();
     if (!heap_caps_get_total_size(MALLOC_CAP_SPIRAM))
         ESP_LOGE(TAG, "no PSRAM found: frames use internal RAM, Wi-Fi may run short");
-    s_cmds = xQueueCreate(16, sizeof(char));
-    s_fb[0] = alloc_frame();
-    s_fb[1] = alloc_frame();
-    ESP_ERROR_CHECK(s_cmds && s_fb[0] && s_fb[1] ? ESP_OK : ESP_ERR_NO_MEM);
+    for (int i = 0; i < 3; i++) s_fb[i] = alloc_frame();
+    ESP_ERROR_CHECK(s_cmds && s_fb[0] && s_fb[1] && s_fb[2] ? ESP_OK : ESP_ERR_NO_MEM);
     ESP_ERROR_CHECK(capture_init(s_fs_hz));
     video_init(&s_video, capture_ring(), CAPTURE_RING_BYTES, s_fs_hz, s_fb[0], on_field, NULL);
     if (c5link_init() != ESP_OK) ESP_LOGE(TAG, "receiver key link unavailable");
-    ESP_ERROR_CHECK(stream_start());
+    ESP_ERROR_CHECK(stream_start(s_fb[1], s_fb[2]));
 #ifdef CONFIG_BRIDGE_TEST_PATTERN_AT_BOOT
     set_source(SOURCE_TEST_NTSC);
 #else

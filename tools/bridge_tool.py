@@ -31,16 +31,37 @@ B64_LINE = re.compile(r"^[A-Za-z0-9+/=]+$")
 OUT_DIR = pathlib.Path(__file__).resolve().parent.parent / "captures"
 
 
+HELP_ID = "VRX Bridge keys"   # first line of the bridge's console help
+
+
 def open_port(name: str) -> serial.Serial:
     # DTR/RTS low: on the native USB console they would reset the chip.
+    # A write timeout: a board that is not reading (a hung C5) would block a
+    # plain write forever and wedge the COM port.
     s = serial.Serial()
     s.port = name
     s.baudrate = 115200
     s.timeout = 0.2
+    s.write_timeout = 1.0
     s.dtr = False
     s.rts = False
     s.open()
     return s
+
+
+def is_bridge(s: serial.Serial) -> bool:
+    """Asks for the help text ('h' is harmless on the C5 too, where the
+    other keys would start a scan, a calibration or change settings)."""
+    try:
+        s.reset_input_buffer()
+        s.write(b"h")
+    except serial.SerialTimeoutException:
+        return False
+    lines = read_until(s, lambda l: HELP_ID in l, 1.5)
+    if not any(HELP_ID in l for l in lines):
+        return False
+    read_until(s, lambda l: False, 0.3)   # drain the rest of the help
+    return True
 
 
 def read_until(s: serial.Serial, done, timeout: float) -> list[str]:
@@ -57,8 +78,14 @@ def read_until(s: serial.Serial, done, timeout: float) -> list[str]:
 
 
 def find_bridge(port_arg: str | None) -> serial.Serial:
+    # Both XIAOs are Espressif 303a:1001: a port is only used once it answers
+    # with the bridge's help, also when given with --port.
     if port_arg:
-        return open_port(port_arg)
+        s = open_port(port_arg)
+        if is_bridge(s):
+            return s
+        s.close()
+        sys.exit(f"{port_arg} does not answer like the bridge (the C5 receiver, or a busy/hung board?).")
     for p in list_ports.comports():
         if p.vid != ESPRESSIF_VID:
             continue
@@ -66,11 +93,7 @@ def find_bridge(port_arg: str | None) -> serial.Serial:
             s = open_port(p.device)
         except serial.SerialException:
             continue
-        s.reset_input_buffer()
-        s.write(b"h")
-        lines = read_until(s, lambda l: "Wi-Fi bridge keys" in l, 1.5)
-        if any("Wi-Fi bridge keys" in l for l in lines):
-            read_until(s, lambda l: False, 0.3)   # drain the rest of the help
+        if is_bridge(s):
             print(f"bridge on {p.device}")
             return s
         s.close()
@@ -378,7 +401,7 @@ def main() -> int:
         out = OUT_DIR / f"rawlong_{stamp}_{fs // 1000000}MHz.bin"
         out.write_bytes(data)
         print(f"{len(data)} samples at {fs / 1e6:g} MS/s ({len(data) / fs * 1e3:.0f} ms) -> {out}")
-        print(f"replay: bridge/test/replay.exe {out} {fs}")
+        print(f"replay: python bridge/test/replay.py {out}")
     elif a.command == "live":
         live(s, a.http)
     elif a.command == "keys":

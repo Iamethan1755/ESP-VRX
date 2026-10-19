@@ -19,6 +19,9 @@ param(
     [switch]$Reconfigure
 )
 $ErrorActionPreference = 'Continue'
+if ($Target -eq 'all' -and ($Flash -or $Monitor)) {
+    throw "-Flash/-Monitor need one board: build.ps1 receiver ... or build.ps1 bridge ... (flash the receiver first)"
+}
 $root = Split-Path -Parent $PSScriptRoot
 $idf = if ($env:IDF_PATH) { $env:IDF_PATH } else { 'C:\esp\v6.0.2\esp-idf' }
 . (Join-Path $idf 'export.ps1') | Out-Null
@@ -40,8 +43,8 @@ function Invoke-Project([string]$name, [string]$dir, [string[]]$extra) {
     if ($LASTEXITCODE -ne 0) { throw "$name failed (exit $LASTEXITCODE)" }
 }
 
-# The receiver is the unmodified upstream submodule: its sdkconfig lives in
-# the build folder so the submodule stays clean.
+# The receiver is the C5VRX submodule (branch wifi-bridge): its sdkconfig
+# lives in the build folder so the submodule's tree stays clean.
 if ($Target -in 'all', 'receiver') {
     Invoke-Project 'receiver' 'receiver' @('-D', "SDKCONFIG=$(Join-Path $root 'build\receiver\sdkconfig')")
 }

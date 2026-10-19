@@ -27,6 +27,9 @@ typedef struct {
     int noise;             /* +-noise codes of random noise per sample (0 = clean) */
     int clicks;            /* FM clicks per 10000 samples: 1-2 samples forced to black or white */
     int lv_sync, lv_blank, lv_white;   /* DAC codes of sync tip, blanking, white */
+    int drop_vsync;        /* the next this many fields lose their broad pulses (fades) */
+    bool dropping;
+    bool five_bit;         /* bit 0 always 0, as with the keys on the bit 0 wire */
     uint32_t rng;
     int len_max, half;
     int x0, x_len;         /* active picture, samples from the line start */

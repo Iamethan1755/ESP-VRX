@@ -26,6 +26,7 @@
 #include "esp_private/gdma.h"
 #include "esp_private/periph_ctrl.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "hal/cam_ll.h"
 #include "hal/dma_types.h"
@@ -49,6 +50,12 @@ static volatile uint32_t s_nodes;
 static volatile uint32_t s_generation;
 static uint32_t s_last_idx;
 static bool s_running;
+/* Start, stop and the console's tests come from two tasks (decoder,
+ * console): one at a time. Recursive: the tests stop and restart. */
+static SemaphoreHandle_t s_ctl;
+
+static void ctl_lock(void) { if (s_ctl) xSemaphoreTakeRecursive(s_ctl, portMAX_DELAY); }
+static void ctl_unlock(void) { if (s_ctl) xSemaphoreGiveRecursive(s_ctl); }
 
 static TaskHandle_t s_notify;
 
@@ -151,6 +158,8 @@ static void configure_cam(void)
 
 esp_err_t capture_init(uint32_t fs_hz)
 {
+    s_ctl = xSemaphoreCreateRecursiveMutex();
+    if (!s_ctl) return ESP_ERR_NO_MEM;
     s_fs_hz = fs_hz;
     ESP_RETURN_ON_FALSE(160000000u % fs_hz == 0, ESP_ERR_INVALID_ARG, TAG, "rate must divide 160 MHz");
 
@@ -229,7 +238,7 @@ static void stop_engines(void)
     gdma_stop(s_dma);
 }
 
-esp_err_t capture_start(void)
+static esp_err_t start_unlocked(void)
 {
     if (s_running) return ESP_OK;
     start_engines();
@@ -248,14 +257,33 @@ esp_err_t capture_start(void)
     return ESP_OK;
 }
 
-void capture_stop(void)
+esp_err_t capture_start(void)
 {
-    if (!s_running) return;
-    stop_engines();
-    s_running = false;
+    ctl_lock();
+    const esp_err_t err = start_unlocked();
+    ctl_unlock();
+    return err;
 }
 
-void capture_debug(char *out, size_t len)
+void capture_stop(void)
+{
+    ctl_lock();
+    if (s_running) {
+        stop_engines();
+        s_running = false;
+    }
+    ctl_unlock();
+}
+
+bool capture_retry(void)
+{
+    if (!s_ctl || xSemaphoreTakeRecursive(s_ctl, 0) != pdTRUE) return false;   /* a test holds the port */
+    const bool started = !s_running && start_unlocked() == ESP_OK;
+    xSemaphoreGiveRecursive(s_ctl);
+    return started;
+}
+
+static void debug_unlocked(char *out, size_t len)
 {
     const bool was_running = s_running;
     capture_stop();
@@ -314,7 +342,14 @@ void capture_debug(char *out, size_t len)
     if (was_running) capture_start();
 }
 
-esp_err_t capture_selftest(char *out, size_t len)
+void capture_debug(char *out, size_t len)
+{
+    ctl_lock();
+    debug_unlocked(out, len);
+    ctl_unlock();
+}
+
+static esp_err_t selftest_unlocked(char *out, size_t len)
 {
     static const uint8_t patterns[] = {0x2a, 0x15, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x3f, 0x00};
     /* Refuse when something drives the pins: with their pull-downs they read
@@ -398,4 +433,12 @@ esp_err_t capture_selftest(char *out, size_t len)
     data_pins_input();
     if (was_running) capture_start();
     return fails ? ESP_FAIL : ESP_OK;
+}
+
+esp_err_t capture_selftest(char *out, size_t len)
+{
+    ctl_lock();
+    const esp_err_t err = selftest_unlocked(out, len);
+    ctl_unlock();
+    return err;
 }

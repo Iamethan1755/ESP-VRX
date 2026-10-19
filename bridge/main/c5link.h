@@ -29,6 +29,9 @@ bool c5link_set_channel(int index);
 /* The channel last set from here, or -1 when unknown (after boot, a scan
  * or a band/channel step: the receiver does not report back). */
 int c5link_channel(void);
+/* True when the released key line sits high: the receiver listens on it.
+ * Keys are not sent otherwise (see c5link.c line_free). */
+bool c5link_listening(void);
 /* Checks that the TX pin really toggles (sends unframed bytes the
  * receiver ignores). Safe with the C5 attached. */
 esp_err_t c5link_selftest(char *out, size_t len);

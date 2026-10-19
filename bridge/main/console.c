@@ -27,6 +27,7 @@ static const char *HELP =
     "  w  Wi-Fi details     G  capture diagnostics    h  this help\n"
     "  C<k>  send receiver key k to the C5 (c channel, b band, s scan, o menu,\n"
     "        n/x menu next/select, e close menu, v video standard)\n"
+    "  #NN  tune the C5 to channel NN (00..47 = band * 8 + channel, bands R A B E F L)\n"
     "  u  check the C5 key link pin\n"
     "  V v  USB video on/off (binary JPEG frames for bridge_tool.py live)\n"
     "  W  record ~6 fields of raw C5 samples, sent binary (bridge_tool.py rawlong)\n";
@@ -75,7 +76,8 @@ static void print_status(void)
 static void dump_raw(void)
 {
     const uint32_t max = CAPTURE_RING_BYTES / 2;
-    uint8_t *buf = heap_caps_malloc(max, MALLOC_CAP_8BIT);
+    uint8_t *buf = heap_caps_malloc(max, MALLOC_CAP_SPIRAM);   /* internal RAM is for Wi-Fi */
+    if (!buf) buf = heap_caps_malloc(max, MALLOC_CAP_8BIT);
     if (!buf) {
         puts("RAW ERROR no memory");
         return;
@@ -91,7 +93,8 @@ static void dump_raw(void)
 static void dump_jpeg(void)
 {
     const size_t max = 96 * 1024;
-    uint8_t *buf = heap_caps_malloc(max, MALLOC_CAP_8BIT);
+    uint8_t *buf = heap_caps_malloc(max, MALLOC_CAP_SPIRAM);   /* internal RAM is for Wi-Fi */
+    if (!buf) buf = heap_caps_malloc(max, MALLOC_CAP_8BIT);
     if (!buf) {
         puts("JPEG ERROR no memory");
         return;
@@ -244,6 +247,18 @@ static void console_task(void *arg)
         case 'C': {
             const char k = read_key();
             printf(c5link_send(k) ? "C5 <- %c\n" : "C5 key %c not accepted (keys: " C5LINK_KEYS ")\n", k);
+            break;
+        }
+        case '#': {   /* like the page's Band/Channel pickers (/c5?ch=NN) */
+            const char a = read_key(), b = read_key();
+            const int idx = (a - '0') * 10 + (b - '0');
+            const bool digits = a >= '0' && a <= '9' && b >= '0' && b <= '9';
+            if (digits && idx < C5LINK_CHANNELS && c5link_set_channel(idx))
+                printf("C5 <- channel %02d\n", idx);
+            else if (digits && idx < C5LINK_CHANNELS)
+                printf("C5 channel %02d not sent: the receiver is not listening on the key line (u checks it)\n", idx);
+            else
+                printf("C5 channel %c%c invalid (00..47)\n", a, b);
             break;
         }
         case 'u': {

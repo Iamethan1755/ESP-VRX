@@ -216,7 +216,7 @@ for i, (k, s) in enumerate(legend):
 # ---- row 3: optional DAC and rules ----------------------------------------
 ROW3 = 1160
 text(40, ROW3 - 20, "Optional: analog video for goggles (C5VRX's resistor DAC on the same pins)", 17, "700")
-dac = [("D4", "8.2 kΩ"), ("D5", "3.9 kΩ"), ("D6", "2.0 kΩ"), ("D7", "1.0 kΩ"), ("D8", "470 Ω"), ("D9", "240 Ω")]
+dac = [("D4", "none (keys)"), ("D5", "3.9 kΩ"), ("D6", "2.0 kΩ"), ("D7", "1.0 kΩ"), ("D8", "470 Ω"), ("D9", "240 Ω")]
 BUS_X = 330
 for i, (pin, val) in enumerate(dac):
     y = ROW3 + 16 + i * 30

@@ -91,7 +91,7 @@
   </header>
   <div class="screen" id="screen">
     <video id="video" muted autoplay playsinline webkit-playsinline disablepictureinpicture aria-label="Live video from the C5VRX receiver"></video>
-    <canvas id="canvas" width="640" height="480" aria-hidden="true"></canvas>
+    <canvas id="canvas" width="384" height="288" aria-hidden="true"></canvas>
     <img id="mjpeg" alt="">
     <div class="overlay"><span id="ov-left"></span><span id="ov-right"></span></div>
     <button class="fs-exit" id="fs-exit" aria-label="Exit full screen" title="Exit full screen">&#10005;</button>
@@ -133,7 +133,7 @@
       <button data-c5="v" data-name="Video std" title="Receiver video standard AUTO / NTSC / PAL">Video std</button>
       <button data-cmd="t" title="C5 input / NTSC test pattern / PAL test pattern">Test pattern</button>
     </div>
-    <p class="hint">Band, Channel, Auto and the menu keys go to the receiver over the link wire (S3 D8 &rarr; C5 GPIO2); its channel, menu and scan results show in the picture.</p>
+    <p class="hint">Band, Channel, Auto and the menu keys go to the receiver over the key wire (S3 D0 &rarr; C5 D4); its channel, menu and scan results show in the picture.</p>
     <details>
       <summary>Details</summary>
       <table id="details"></table>
@@ -156,7 +156,7 @@
   let viaVideo = false;
   if (canvas.captureStream) {
     try {
-      video.srcObject = canvas.captureStream(30);
+      video.srcObject = canvas.captureStream();   /* a frame per draw, no extra pacing */
       viaVideo = true;
     } catch (e) { viaVideo = false; }
   }
@@ -169,10 +169,11 @@
   video.addEventListener('webkitendfullscreen', playVideo);
   playVideo();
 
-  let latest = null, decoding = false, shown = 0, everDrawn = false, imgMode = false, abort = null;
+  let latest = null, decoding = false, shown = 0, everDrawn = false, imgMode = false, abort = null, reader = null;
+  let parts = 0, firstPart = 0, failures = 0, lastData = 0, running = false, stopping = false;
   function drawNewest() {
     if (decoding || !latest) return;
-    const blob = new Blob([latest], { type: 'image/jpeg' });
+    const blob = latest;
     latest = null;
     decoding = true;
     const done = () => { decoding = false; drawNewest(); };
@@ -186,59 +187,120 @@
       img.src = url;
     }
   }
-  const headerEnd = b => {
-    for (let i = 0; i + 3 < b.length; i++)
+  /* End of a part's headers (CR LF CR LF) within its first 512 bytes. */
+  const headerEnd = (b, from, to) => {
+    const stop = Math.min(to, from + 512);
+    for (let i = from; i + 3 < stop; i++)
       if (b[i] === 13 && b[i + 1] === 10 && b[i + 2] === 13 && b[i + 3] === 10) return i;
-    return -1;
+    return stop - from >= 512 ? -2 : -1;
   };
-  const join = (a, b) => { const c = new Uint8Array(a.length + b.length); c.set(a); c.set(b, a.length); return c; };
+  /* Lost framing: the next part boundary at or after `from`, else where a
+   * boundary split by the chunk end could start. */
+  const MARK = [45, 45, 118, 114, 120, 102, 114, 97, 109, 101];   /* --vrxframe */
+  const nextBoundary = (b, from, to) => {
+    outer: for (let i = from; i + MARK.length <= to; i++) {
+      for (let k = 0; k < MARK.length; k++) if (b[i + k] !== MARK[k]) continue outer;
+      return i;
+    }
+    return Math.max(from, to - MARK.length + 1);
+  };
   const text = new TextDecoder();
   /* raw=1: the same bytes labelled as plain binary; Safari handles a
-   * multipart/x-mixed-replace response itself and closed this fetch. */
+   * multipart/x-mixed-replace response itself and closed this fetch.
+   * One reused buffer (no new array per network chunk); each JPEG is
+   * copied once, into the Blob that gets decoded. */
   async function readStream() {
     abort = window.AbortController ? new AbortController() : null;
     const res = await fetch(`http://${location.hostname}:81/stream?raw=1&t=${Date.now()}`,
                             abort ? { signal: abort.signal } : {});
-    if (!res.ok || !res.body) throw new Error('no stream');
-    const reader = res.body.getReader();
-    let buf = new Uint8Array(0);
+    if (!res.ok) throw new Error('no stream');
+    if (!res.body || !res.body.getReader) { useImg(); return; }   /* no streaming fetch here */
+    reader = res.body.getReader();
+    let store = new Uint8Array(256 * 1024), pos = 0, len = 0;
     for (;;) {
       const { value, done } = await reader.read();
       if (done) throw new Error('stream ended');
-      buf = join(buf, value);
-      for (;;) {   /* parts: --boundary, headers, blank line, Content-Length bytes of JPEG */
-        const end = headerEnd(buf);
-        if (end < 0) break;
-        const m = /Content-Length:\s*(\d+)/i.exec(text.decode(buf.subarray(0, end)));
-        const start = end + 4;
-        if (!m) { buf = buf.slice(start); continue; }
-        const n = +m[1];
-        if (buf.length < start + n) break;
-        latest = buf.slice(start, start + n);
-        buf = buf.slice(start + n);
-        drawNewest();
+      lastData = Date.now();
+      if (len + value.length > store.length) {
+        store.copyWithin(0, pos, len);
+        len -= pos;
+        pos = 0;
+        if (len + value.length > store.length) {
+          if (len + value.length > (1 << 21)) { len = 0; continue; }   /* lost the framing: start over */
+          const bigger = new Uint8Array(2 * (len + value.length));
+          bigger.set(store.subarray(0, len));
+          store = bigger;
+        }
       }
-      if (buf.length > (1 << 20)) buf = new Uint8Array(0);   /* lost the framing: start over */
+      store.set(value, len);
+      len += value.length;
+      for (;;) {   /* parts: --boundary, headers, blank line, Content-Length bytes of JPEG */
+        const end = headerEnd(store, pos, len);
+        if (end === -1) break;
+        if (end === -2) {   /* no header here: skip to the next boundary */
+          const at = nextBoundary(store, pos + 1, len);
+          pos = at;
+          if (at + MARK.length > len) break;
+          continue;
+        }
+        const m = /Content-Length:\s*(\d+)/i.exec(text.decode(store.subarray(pos, end)));
+        const start = end + 4;
+        if (!m) { pos = start; continue; }
+        const n = +m[1];
+        if (len < start + n) break;
+        latest = new Blob([store.subarray(start, start + n)], { type: 'image/jpeg' });
+        pos = start + n;
+        if (!parts++) firstPart = Date.now();
+        failures = 0;
+      }
+      if (pos === len) pos = len = 0;
+      drawNewest();   /* once per chunk: only the newest frame of it */
     }
   }
   const runStream = () => {
-    if (imgMode) return;
-    readStream().catch(() => {}).finally(() => { if (!imgMode) setTimeout(runStream, 1000); });
+    if (imgMode || document.hidden || running) return;
+    running = true;
+    stopping = false;
+    lastData = Date.now();
+    const before = parts;
+    readStream().catch(() => {}).finally(() => {
+      running = false;
+      reader = null;
+      if (parts === before && !stopping) failures++;
+      if (!imgMode && !document.hidden) setTimeout(runStream, stopping ? 0 : 1000);
+    });
   };
+  const restart = () => {
+    stopping = true;
+    if (abort) abort.abort();
+    if (reader) reader.cancel().catch(() => {});
+  };
+  /* A stalled connection (Wi-Fi dropped, the phone slept, a request that
+   * never answers): the bridge sends at least every 2 s, so 5 s of silence
+   * means start over. */
+  setInterval(() => { if (running && Date.now() - lastData > 5000) restart(); }, 1000);
+  /* In the background the stream is closed, so the bridge frees the viewer
+   * slot (it has three); back in front it reconnects at once. */
+  document.addEventListener('visibilitychange', () => (document.hidden ? restart() : runStream()));
   runStream();
-  /* No frame drawn this way within 6 s: the browser's own MJPEG <img> instead
-   * (no native player then; Full covers the window or uses the browser's). */
+  /* The browser's own MJPEG <img> instead when this way cannot work: the
+   * bridge streams (status fps > 0) but three connections in a row brought
+   * no frame, or frames came for 6 s and none could be drawn. No native
+   * player then; Full covers the window or uses the browser's. */
+  const checkFallback = s => {
+    if (imgMode || everDrawn || document.hidden || !(s.fps > 0)) return;
+    if (failures >= 3 || (parts > 0 && Date.now() - firstPart > 6000)) useImg();
+  };
   const useImg = () => {
     if (imgMode) return;
     imgMode = true;
-    if (abort) abort.abort();
+    restart();
     view.classList.add('img-mode');
     const mjpeg = document.getElementById('mjpeg');
     const start = () => { mjpeg.src = `http://${location.hostname}:81/stream?t=${Date.now()}`; };
     mjpeg.onerror = () => setTimeout(start, 1000);
     start();
   };
-  setTimeout(() => { if (!everDrawn) useImg(); }, 6000);
 
   document.querySelectorAll('button[data-cmd]').forEach(b => {
     b.addEventListener('click', () => fetch('/cmd?c=' + b.dataset.cmd).then(poll).catch(() => {}));
@@ -250,9 +312,10 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { toast.textContent = ''; }, 3500);
   };
+  const NOT_LISTENING = 'The receiver is not listening on the key wire (S3 D0 to C5 D4; u on the console checks it).';
   document.querySelectorAll('button[data-c5]').forEach(b => {
     b.addEventListener('click', () => fetch('/c5?k=' + b.dataset.c5)
-      .then(r => say(!r.ok ? 'The bridge did not accept that key.'
+      .then(r => say(r.status === 503 ? NOT_LISTENING : !r.ok ? 'The bridge did not accept that key.'
                     : b.dataset.c5 === 's' ? (autoPressed = true, showTuned(-1, -1, 'auto'), 'Scanning all channels: the receiver tunes to the strongest VTX.')
                     : `${b.dataset.name} sent to the receiver.`))
       .catch(() => say('Bridge not reachable.')));
@@ -294,9 +357,14 @@
   const tune = (band, ch) => {
     autoPressed = false;
     showTuned(band, ch);
+    /* Shown at once; the next status then shows what the bridge really
+     * set (the old channel when this one was refused). */
+    const resync = () => { lastReported = -2; };
     fetch('/c5?ch=' + (band * 8 + ch))
-      .then(r => say(r.ok ? `Tuning to ${BANDS[band][0]} ${ch + 1} (${BANDS[band][2][ch]} MHz).` : 'The bridge did not accept that channel.'))
-      .catch(() => say('Bridge not reachable.'));
+      .then(r => say(r.ok ? `Tuning to ${BANDS[band][0]} ${ch + 1} (${BANDS[band][2][ch]} MHz).`
+                    : r.status === 503 ? NOT_LISTENING : 'The bridge did not accept that channel.'))
+      .catch(() => say('Bridge not reachable.'))
+      .finally(resync);
   };
   bandSel.onchange = () => tune(+bandSel.value, tuned.ch >= 0 ? tuned.ch : 0);
   chSel.onchange = () => tune(tuned.band >= 0 ? tuned.band : 0, +chSel.value);
@@ -396,12 +464,17 @@
       document.getElementById('ov-right').textContent = `${imgMode ? s.fps.toFixed(0) : shownRate} fps`;
       rows.forEach(([, f], i) => { document.getElementById('r' + i).textContent = f(s); });
       if (typeof s.c5_channel === 'number') syncTuned(s.c5_channel);
+      checkFallback(s);
       const bf = document.getElementById('btn-filter'), bd = document.getElementById('btn-denoise');
       bf.textContent = s.filter === 'median' ? 'Despeckle on' : 'Despeckle off';
       bf.classList.toggle('on', s.filter === 'median');
       bd.textContent = s.denoise ? 'Denoise on' : 'Denoise off';
       bd.classList.toggle('on', !!s.denoise);
-    }).catch(() => { badge.textContent = 'offline'; badge.className = 'badge bad'; });
+    }).catch(() => {
+      badge.textContent = 'offline'; badge.className = 'badge bad';
+      document.getElementById('ov-left').textContent = 'OFFLINE';
+      document.getElementById('ov-right').textContent = `${shownRate} fps`;
+    });
   }
   poll();
   setInterval(poll, 1000);

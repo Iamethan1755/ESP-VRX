@@ -99,7 +99,7 @@ typedef struct {
     int32_t map_lo_q8, map_hi_q8;   /* output mapping, smoothed */
     int32_t map_off;                /* Q2 (sum of 4 samples) */
     int32_t map_gain;               /* Q16 */
-    uint8_t lut[1024];              /* filtered sum (4x code) -> pixel, rebuilt per field */
+    uint8_t lut[256];               /* filtered sum (4x code, 0..252) -> pixel, rebuilt per field */
     uint32_t hist[64];              /* filtered active-area levels of this field */
 
     /* vertical */
@@ -111,6 +111,7 @@ typedef struct {
     video_std_t std;
     bool v_locked;
     int v_miss;               /* vertical syncs missed in a row (flywheel) */
+    int field_len[2];         /* lengths of the last two fields (interlace alternates them) */
 
     /* output */
     uint8_t *fb;

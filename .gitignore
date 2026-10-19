@@ -6,6 +6,7 @@ bridge/sdkconfig
 bridge/sdkconfig.old
 bridge/managed_components/
 bridge/test/test_video
+bridge/test/replay
 bridge/test/*.exe
 bridge/test/*.pdb
 bridge/test/test_out_*

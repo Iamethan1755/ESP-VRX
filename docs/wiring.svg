@@ -188,7 +188,7 @@
 <text x="84" y="1181" font-size="13" font-weight="600" fill="#1D2733" text-anchor="start">C5 D4</text>
 <line x1="150" y1="1176" x2="330" y2="1176" stroke="#8B4513" stroke-width="2.5"/>
 <rect x="220.0" y="1167" width="60" height="18" rx="2" fill="#fff" stroke="#8B4513" stroke-width="2"/>
-<text x="250.0" y="1181" font-size="12" font-weight="600" fill="#8B4513" text-anchor="middle">8.2 kΩ</text>
+<text x="250.0" y="1181" font-size="12" font-weight="600" fill="#8B4513" text-anchor="middle">none (keys)</text>
 <circle cx="70" cy="1206" r="7.5" fill="#D62728" stroke="#fff" stroke-width="1.5"/>
 <text x="84" y="1211" font-size="13" font-weight="600" fill="#1D2733" text-anchor="start">C5 D5</text>
 <line x1="150" y1="1206" x2="330" y2="1206" stroke="#D62728" stroke-width="2.5"/>

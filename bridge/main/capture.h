@@ -17,6 +17,9 @@ esp_err_t capture_init(uint32_t fs_hz);
 uint8_t *capture_ring(void);
 esp_err_t capture_start(void);
 void capture_stop(void);
+/* Starts a capture that is not running (one that failed to start) unless a
+ * console test holds the port right now; true when it started. */
+bool capture_retry(void);
 bool capture_running(void);
 /* Samples written since capture_start(), in whole DMA nodes. */
 uint32_t capture_write_pos(void);

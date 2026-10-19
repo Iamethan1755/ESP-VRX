@@ -34,3 +34,7 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 # A whole JPEG fits the TCP send buffer: one frame goes out without waiting
 # for ACK round trips (default 5760 bytes is smaller than a live frame).
 CONFIG_LWIP_TCP_SND_BUF_DEFAULT=32768
+
+# Two HTTP servers (page, stream) with 4 connections, a listening and a
+# control socket each: 12, more than the default 10.
+CONFIG_LWIP_MAX_SOCKETS=16

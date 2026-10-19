@@ -19,13 +19,19 @@ static uint8_t s_last[VIDEO_W * VIDEO_H_MAX];
 static uint8_t s_acc[VIDEO_W * VIDEO_H_MAX];   /* denoise running picture, as in the encoder */
 static bool s_denoise, s_acc_first;
 static bool s_weak;   /* C5-like levels: sync 15, blanking 21, white 40, dark on the left */
+static bool s_five_bit;   /* bit 0 always 0 (keys on the bit 0 wire) */
 static int s_last_h, s_failures;
+static int s_rolled = -1;   /* >= 0: count drawn fields whose first row is not picture */
 
 /* Like the firmware: draw every other field only, keep the drawn ones. */
 static uint8_t *on_field(uint8_t *done, int w, int h, bool rendered, bool *render_next, void *ctx)
 {
     (void)ctx;
     if (rendered) {
+        /* Bars on row 0, the ramp on the second-last row: a field that
+         * starts a few lines early or late (vertical roll) misses one. */
+        if (s_rolled >= 0)
+            s_rolled += !(done[20] > 200 && done[(h - 2) * w + w - 20] > done[(h - 2) * w + 20] + 150);
         if (s_denoise) {
             denoise_frame(s_acc, done, w, h, s_acc_first);
             s_acc_first = false;
@@ -103,7 +109,7 @@ static void check_picture(const testpattern_t *tp, const char *name)
     for (int x = 0; x < VIDEO_W; x++) {
         if (pxa(x, 60) < 220 || pxa(x, 100) > 160) continue;
         cols++;
-        bad += !(pxa(x, 41) > 220 && pxa(x, 78) > 220 && pxa(x, 40) < 60 + 4 * tp->noise && pxa(x, 39) < 200);
+        bad += !(pxa(x, 41) > 200 && pxa(x, 78) > 200 && pxa(x, 40) < 60 + 4 * tp->noise && pxa(x, 39) < 200);
     }
     CHECK(bad <= 2 + 2 * tp->noise, "%s: box misplaced (%d columns, %d wrong)", name, cols, bad);
 }
@@ -149,6 +155,7 @@ static void scenario_full(const char *name, uint32_t fs, bool pal, int noise, in
     }
     tp.noise = noise;
     tp.clicks = clicks;
+    tp.five_bit = s_five_bit;
     testpattern_restart(&tp, 123456u);   /* arbitrary start, mid-field for the decoder */
     video_init(&v, s_ring, RING, fs, s_fb[0], on_field, NULL);
     video_reset(&v, tp.pos);
@@ -193,6 +200,24 @@ static void scenario_full(const char *name, uint32_t fs, bool pal, int noise, in
     if (speckles_out) *speckles_out = speckles;
     if (rms_out) *rms_out = rms;
 
+    /* Missed vertical syncs (a fade, a channel change): the flywheel keeps
+     * the field phase, no field may come out rolled, also on the ones after.
+     * Restarting the line count after a forced field once rolled the picture
+     * for 4-5 fields. */
+    if (strict) {
+        for (int drops = 1; drops <= 3; drops++) {
+            tp.drop_vsync = drops;
+            s_rolled = 0;
+            run(&tp, &v, 0.2, true);
+            const int rolled = s_rolled;
+            s_rolled = -1;
+            video_get_stats(&v, &st);
+            printf("  %d vertical sync(s) dropped: rolled fields=%d locked h=%d v=%d\n", drops, rolled, st.h_locked, st.v_locked);
+            CHECK(rolled == 0, "%s: %d rolled fields after %d missed vertical syncs", name, rolled, drops);
+            CHECK(st.h_locked && st.v_locked, "%s: lock lost after %d missed vertical syncs", name, drops);
+        }
+    }
+
     /* Signal loss: fields keep coming (free-run), lock drops. */
     uint32_t f0 = v.fields;
     run(&tp, &v, 0.5, false);
@@ -215,6 +240,18 @@ static void scenario_full(const char *name, uint32_t fs, bool pal, int noise, in
     printf("  after starvation: overruns=%u locked h=%d v=%d\n", st.overruns, st.h_locked, st.v_locked);
     CHECK(st.overruns >= 1, "%s: overrun not detected", name);
     CHECK(st.h_locked && st.v_locked, "%s: no relock after overrun", name);
+
+    /* A short stall (the decoder a bit under one ring behind, as when Wi-Fi
+     * holds core 1 off): lines are skipped but the line lock stays. */
+    const uint32_t losses = st.lock_losses, over = st.overruns;
+    testpattern_run_until(&tp, tp.pos + RING * 7 / 8 + 2048);
+    run(&tp, &v, 0.2, true);
+    video_get_stats(&v, &st);
+    printf("  short stall: overruns +%u lock losses +%u locked h=%d v=%d\n", st.overruns - over,
+           st.lock_losses - losses, st.h_locked, st.v_locked);
+    CHECK(st.overruns > over, "%s: short stall not detected", name);
+    CHECK(st.lock_losses == losses, "%s: short stall dropped the line lock", name);
+    CHECK(st.h_locked && st.v_locked, "%s: not locked after a short stall", name);
     testpattern_free(&tp);
 }
 
@@ -277,6 +314,13 @@ int main(void)
     scenario_full("ntsc_20mhz_weak_dark", 20000000, false, 4, 50, VIDEO_FILTER_MEDIAN, true, NULL, NULL);
     scenario_full("ntsc_10mhz_weak_dark", 10000000, false, 4, 50, VIDEO_FILTER_MEDIAN, false, NULL, NULL);
     scenario_full("pal_20mhz_weak_dark", 20000000, true, 4, 50, VIDEO_FILTER_MEDIAN, true, NULL, NULL);
+    /* Keys on the bit 0 wire: the same weak signal with 5 bits. */
+    s_five_bit = true;
+    scenario_full("ntsc_20mhz_weak_dark_5bit", 20000000, false, 4, 50, VIDEO_FILTER_MEDIAN, true, NULL, NULL);
+    scenario_full("pal_20mhz_weak_dark_5bit", 20000000, true, 4, 50, VIDEO_FILTER_MEDIAN, true, NULL, NULL);
+    s_weak = false;
+    scenario("ntsc_20mhz_5bit", 20000000, false, 0);
+    s_five_bit = false;
     s_weak = false;
     printf(s_failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", s_failures);
     return s_failures ? 1 : 0;

@@ -6,11 +6,13 @@
 #include <stdint.h>
 #include "esp_err.h"
 
-esp_err_t stream_start(void);
-/* Hands a finished grayscale frame to the JPEG encoder without waiting.
- * Returns false while the encoder is still busy with the previous one;
- * after true the caller must not touch `fb` until the next call succeeds. */
-bool stream_submit(const uint8_t *fb, int w, int h);
+/* `spare_a`, `spare_b`: two more frame buffers like the one the decoder
+ * renders into (VIDEO_W x VIDEO_H_MAX, 16-byte aligned). */
+esp_err_t stream_start(uint8_t *spare_a, uint8_t *spare_b);
+/* Hands a finished grayscale frame to the JPEG encoder without waiting and
+ * returns the buffer to render the next frame into. The newest frame wins:
+ * one still waiting for the encoder is dropped (its buffer comes back). */
+uint8_t *stream_submit(uint8_t *fb, int w, int h);
 void stream_stats(float *fps, uint32_t *jpeg_bytes, uint32_t *frames, int *clients);
 /* Temporal denoise before JPEG (on by default). */
 void stream_set_denoise(bool on);

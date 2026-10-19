@@ -37,10 +37,8 @@
 static const char *TAG = "stream";
 extern const char index_html[] asm("_binary_index_html_start");
 
-static SemaphoreHandle_t s_job, s_lock;
-static volatile bool s_busy;
-static const uint8_t *s_job_fb;
-static int s_job_w, s_job_h;
+static SemaphoreHandle_t s_lock;
+static TaskHandle_t s_encoder;
 static uint8_t *s_jpeg, *s_spare;      /* published JPEG and the encoder's next output */
 static size_t s_jpeg_len;
 static volatile uint32_t s_seq;
@@ -60,15 +58,21 @@ static portMUX_TYPE s_vmux = portMUX_INITIALIZER_UNLOCKED;
 static bool s_viewer_used[MAX_VIEWERS];
 static httpd_req_t *s_viewer_req[MAX_VIEWERS];
 static TaskHandle_t s_viewer_task[MAX_VIEWERS];
+static int64_t s_viewer_since[MAX_VIEWERS];
+static volatile bool s_viewer_kick[MAX_VIEWERS];   /* make room: this viewer closes */
+/* Held while notifying and while a viewer task removes its handle before
+ * deleting itself: a copied handle could otherwise be notified after the
+ * task was gone (the idle task on core 1 may free it at any time). */
+static SemaphoreHandle_t s_notify_lock;
 
 static void notify_viewers(void)
 {
-    TaskHandle_t tasks[MAX_VIEWERS];
-    portENTER_CRITICAL(&s_vmux);
-    memcpy(tasks, s_viewer_task, sizeof tasks);
-    portEXIT_CRITICAL(&s_vmux);
-    for (int i = 0; i < MAX_VIEWERS; i++)
-        if (tasks[i]) xTaskNotifyGive(tasks[i]);
+    xSemaphoreTake(s_notify_lock, portMAX_DELAY);
+    for (int i = 0; i < MAX_VIEWERS; i++) {
+        TaskHandle_t t = s_viewer_task[i];
+        if (t) xTaskNotifyGive(t);
+    }
+    xSemaphoreGive(s_notify_lock);
 }
 
 static void *alloc_big(size_t n)
@@ -77,15 +81,54 @@ static void *alloc_big(size_t n)
     return p ? p : heap_caps_malloc(n, MALLOC_CAP_8BIT);
 }
 
-bool stream_submit(const uint8_t *fb, int w, int h)
+/* Frame mailbox between the decoder (core 1) and the encoder: three frame
+ * buffers, each owned by the decoder (rendering), the mailbox (the newest
+ * finished frame, waiting) or the encoder, or free. A frame finished while
+ * the encoder is busy replaces the waiting one, so the encoder always
+ * starts on the newest picture and the decoder never waits or skips a
+ * submit (a skipped submit once moved the stream to the other field
+ * parity: the picture bobbed). */
+static portMUX_TYPE s_mbox_mux = portMUX_INITIALIZER_UNLOCKED;
+static uint8_t *s_ready;          /* newest finished frame, NULL when none waits */
+static int s_ready_w, s_ready_h;
+static uint8_t *s_free[2];
+static int s_nfree;
+
+uint8_t *stream_submit(uint8_t *fb, int w, int h)
 {
-    if (s_busy || !s_job) return false;
-    s_job_fb = fb;
-    s_job_w = w;
-    s_job_h = h;
-    s_busy = true;
-    xSemaphoreGive(s_job);
-    return true;
+    uint8_t *next = fb;   /* no mailbox yet: the decoder keeps its buffer */
+    portENTER_CRITICAL(&s_mbox_mux);
+    if (s_ready) {
+        next = s_ready;   /* the encoder never took it: newer picture wins */
+    } else if (s_nfree > 0) {
+        next = s_free[--s_nfree];
+    }
+    if (next != fb) {
+        s_ready = fb;
+        s_ready_w = w;
+        s_ready_h = h;
+    }
+    portEXIT_CRITICAL(&s_mbox_mux);
+    if (next != fb && s_encoder) xTaskNotifyGive(s_encoder);
+    return next;
+}
+
+static uint8_t *mbox_take(int *w, int *h)
+{
+    portENTER_CRITICAL(&s_mbox_mux);
+    uint8_t *fb = s_ready;
+    s_ready = NULL;
+    *w = s_ready_w;
+    *h = s_ready_h;
+    portEXIT_CRITICAL(&s_mbox_mux);
+    return fb;
+}
+
+static void mbox_release(uint8_t *fb)
+{
+    portENTER_CRITICAL(&s_mbox_mux);
+    if (s_nfree < 2) s_free[s_nfree++] = fb;
+    portEXIT_CRITICAL(&s_mbox_mux);
 }
 
 /* Temporal denoise state (encoder task only, plus the on/off switch). */
@@ -110,39 +153,43 @@ static void encoder_task(void *arg)
     int64_t window = esp_timer_get_time();
     uint32_t count = 0;
     for (;;) {
-        xSemaphoreTake(s_job, portMAX_DELAY);
-        if (!enc || enc_w != s_job_w || enc_h != s_job_h) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        int w, h;
+        uint8_t *fb = mbox_take(&w, &h);
+        if (!fb) continue;
+        if (!enc || enc_w != w || enc_h != h) {
             if (enc) jpeg_enc_close(enc);
             enc = NULL;
             jpeg_enc_config_t cfg = DEFAULT_JPEG_ENC_CONFIG();
-            cfg.width = s_job_w;
-            cfg.height = s_job_h;
+            cfg.width = w;
+            cfg.height = h;
             cfg.src_type = JPEG_PIXEL_FORMAT_GRAY;
             cfg.subsampling = JPEG_SUBSAMPLE_GRAY;
             cfg.quality = CONFIG_BRIDGE_JPEG_QUALITY;
             if (jpeg_enc_open(&cfg, &enc) != JPEG_ERR_OK) {
-                ESP_LOGE(TAG, "JPEG encoder %dx%d failed to open", s_job_w, s_job_h);
+                ESP_LOGE(TAG, "JPEG encoder %dx%d failed to open", w, h);
                 enc = NULL;
-                s_busy = false;
+                mbox_release(fb);
                 continue;
             }
-            enc_w = s_job_w;
-            enc_h = s_job_h;
+            enc_w = w;
+            enc_h = h;
         }
-        const uint8_t *src = s_job_fb;
+        const uint8_t *src = fb;
         if (s_nr && s_nr_on) {
             /* Temporal denoise here, on core 0: the result (s_nr) is what
              * gets encoded, and the decoder's frame is free right after. */
-            const bool first = !s_nr_valid || s_nr_h != s_job_h;
-            denoise_frame(s_nr, s_job_fb, s_job_w, s_job_h, first);
+            const bool first = !s_nr_valid || s_nr_h != h;
+            denoise_frame(s_nr, fb, w, h, first);
             s_nr_valid = true;
-            s_nr_h = s_job_h;
+            s_nr_h = h;
             src = s_nr;
-            s_busy = false;
+            mbox_release(fb);
+            fb = NULL;
         }
         int out_len = 0;
-        jpeg_error_t err = jpeg_enc_process(enc, src, s_job_w * s_job_h, s_spare, JPEG_MAX, &out_len);
-        s_busy = false;   /* the decoder may render into that frame again */
+        jpeg_error_t err = jpeg_enc_process(enc, src, w * h, s_spare, JPEG_MAX, &out_len);
+        if (fb) mbox_release(fb);
         if (err != JPEG_ERR_OK || out_len <= 0) continue;
 
         xSemaphoreTake(s_lock, portMAX_DELAY);
@@ -153,6 +200,10 @@ static void encoder_task(void *arg)
         s_seq++;
         xSemaphoreGive(s_lock);
         notify_viewers();
+        /* One tick for the idle task (task watchdog) and the low-priority
+         * mDNS task: with a noisy picture the encoder runs back to back.
+         * After the publish, so the frame does not wait for it. */
+        vTaskDelay(1);
 
         count++;
         int64_t now = esp_timer_get_time();
@@ -241,18 +292,24 @@ static esp_err_t c5_get(httpd_req_t *req)
 {
     char query[32], val[4];
     const bool q = httpd_req_get_url_query_str(req, query, sizeof query) == ESP_OK;
+    /* 503 when the key line is not free (no receiver listening, see
+     * c5link.c): the page then shows the pick as not applied. */
     if (q && httpd_query_key_value(query, "ch", val, sizeof val) == ESP_OK) {
         char *end = NULL;
         const long ch = strtol(val, &end, 10);
-        if (!val[0] || *end || !c5link_set_channel((int)ch))
+        if (!val[0] || *end || ch < 0 || ch >= C5LINK_CHANNELS)
             return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "channel 0..47");
+        if (!c5link_set_channel((int)ch))
+            return httpd_resp_send_custom_err(req, "503 Service Unavailable", "receiver not listening on the key line");
         printf("C5 <- channel %ld\n", ch);
         httpd_resp_set_hdr(req, "Cache-Control", "no-store");
         return httpd_resp_sendstr(req, "ok");
     }
-    bool ok = q && httpd_query_key_value(query, "k", val, sizeof val) == ESP_OK &&
-              val[0] && !val[1] && c5link_send(val[0]);
-    if (!ok) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unknown receiver key");
+    const bool valid = q && httpd_query_key_value(query, "k", val, sizeof val) == ESP_OK &&
+                       val[0] && !val[1] && strchr(C5LINK_KEYS, val[0]);
+    if (!valid) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unknown receiver key");
+    if (!c5link_send(val[0]))
+        return httpd_resp_send_custom_err(req, "503 Service Unavailable", "receiver not listening on the key line");
     printf("C5 <- %c\n", val[0]);
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     return httpd_resp_sendstr(req, "ok");
@@ -326,6 +383,8 @@ static void viewer_task(void *arg)
      * then stored the handle of a deleted task for notify_viewers(). */
     portENTER_CRITICAL(&s_vmux);
     s_viewer_task[slot] = xTaskGetCurrentTaskHandle();
+    s_viewer_since[slot] = esp_timer_get_time();
+    s_viewer_kick[slot] = false;
     httpd_req_t *req = s_viewer_req[slot];
     s_clients++;
     portEXIT_CRITICAL(&s_vmux);
@@ -362,6 +421,12 @@ static void viewer_task(void *arg)
         /* Woken by the encoder for each new JPEG; resend the last one after
          * 2 s without a frame so the connection stays alive. */
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000));
+        if (s_viewer_kick[slot]) break;
+        /* A phone that sleeps with the page open keeps the connection but
+         * reads nothing: the send then times out after the server's
+         * send_wait_timeout (5 s) and the viewer closes, freeing the slot.
+         * (A select() for writability before picking the frame let only
+         * ~1 frame/s through on the board, 2026-10-19.) */
         size_t len = 0;
         int h = 0;
         uint32_t seq = 0;
@@ -398,6 +463,9 @@ static void viewer_task(void *arg)
     s_vstat_last[slot] = (viewer_stats_t){0};
 
     printf("HTTP video stream closed (viewer %d)\n", slot);
+    xSemaphoreTake(s_notify_lock, portMAX_DELAY);
+    s_viewer_task[slot] = NULL;   /* no notification reaches this task from here on */
+    xSemaphoreGive(s_notify_lock);
     free(buf);
     httpd_handle_t server = req->handle;
     httpd_req_async_handler_complete(req);
@@ -419,8 +487,19 @@ static esp_err_t stream_get(httpd_req_t *req)
             slot = i;
         }
     }
+    if (slot < 0) {
+        /* All slots taken (often by connections a phone left behind): the
+         * oldest viewer makes room, this one retries (the page does). */
+        int oldest = 0;
+        for (int i = 1; i < MAX_VIEWERS; i++)
+            if (s_viewer_since[i] < s_viewer_since[oldest]) oldest = i;
+        s_viewer_kick[oldest] = true;
+        portEXIT_CRITICAL(&s_vmux);
+        notify_viewers();
+        httpd_resp_set_hdr(req, "Retry-After", "1");
+        return httpd_resp_send_custom_err(req, "503 Service Unavailable", "too many viewers: the oldest one closes, retry");
+    }
     portEXIT_CRITICAL(&s_vmux);
-    if (slot < 0) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "too many viewers");
 
     httpd_req_t *copy = NULL;
     if (httpd_req_async_handler_begin(req, &copy) != ESP_OK) {
@@ -577,21 +656,24 @@ static esp_err_t wifi_start(void)
     return ESP_OK;
 }
 
-esp_err_t stream_start(void)
+esp_err_t stream_start(uint8_t *spare_a, uint8_t *spare_b)
 {
-    s_job = xSemaphoreCreateBinary();
+    s_free[0] = spare_a;
+    s_free[1] = spare_b;
+    s_nfree = spare_a && spare_b ? 2 : 0;
     s_lock = xSemaphoreCreateMutex();
+    s_notify_lock = xSemaphoreCreateMutex();
     s_jpeg = alloc_big(JPEG_MAX);
     s_spare = alloc_big(JPEG_MAX);
     /* The denoised picture is the JPEG input: 16-byte aligned for the encoder. */
     s_nr = heap_caps_aligned_calloc(16, 1, DENOISE_W_MAX * 288, MALLOC_CAP_SPIRAM);
     if (!s_nr) s_nr = heap_caps_aligned_calloc(16, 1, DENOISE_W_MAX * 288, MALLOC_CAP_8BIT);
     s_nr_on = s_nr != NULL;   /* on by default */
-    if (!s_job || !s_lock || !s_jpeg || !s_spare) return ESP_ERR_NO_MEM;
-    /* Lowest priority on core 0: encoding a noisy picture takes longer than a
+    if (!s_nfree || !s_lock || !s_notify_lock || !s_jpeg || !s_spare) return ESP_ERR_NO_MEM;
+    /* Low priority on core 0: encoding a noisy picture takes longer than a
      * frame, so the encoder runs nonstop and must only get what the web
      * server, viewers and USB console leave (at 5 it starved the console). */
-    xTaskCreatePinnedToCore(encoder_task, "jpeg", 6144, NULL, 2, NULL, 0);
+    xTaskCreatePinnedToCore(encoder_task, "jpeg", 6144, NULL, 2, &s_encoder, 0);
 
     ESP_ERROR_CHECK(wifi_start());
     static const httpd_uri_t page_uris[] = {

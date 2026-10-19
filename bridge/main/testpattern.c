@@ -160,10 +160,18 @@ static void emit_line(testpattern_t *t)
     t->acc_q16 = sum & 0xffffu;
 
     const int L = t->line + 1;
-    if (L == 1 || L == (t->pal ? 313 : 263)) t->field++;
+    if (L == 1 || L == (t->pal ? 313 : 263)) {
+        t->field++;
+        t->dropping = t->drop_vsync > 0;
+        if (t->dropping) t->drop_vsync--;
+    }
     half_t l, r;
     int row;
     line_kind(t, L, &l, &r, &row);
+    if (t->dropping) {
+        if (l == H_BROAD) l = H_BLANK;
+        if (r == H_BROAD) r = H_BLANK;
+    }
     const uint8_t *a = half_src(t, l, row, len);
     const uint8_t *b = r == l ? a : half_src(t, r, row, len);
     const uint8_t *src = a;
@@ -172,7 +180,7 @@ static void emit_line(testpattern_t *t)
         memcpy(t->buf + t->half, b + t->half, len - (uint32_t)t->half);
         src = t->buf;
     }
-    if (t->noise > 0 || t->clicks > 0) {
+    if (t->noise > 0 || t->clicks > 0 || t->five_bit) {
         if (src != t->buf) memcpy(t->buf, src, len);
         const int span = 2 * t->noise + 1;
         for (uint32_t k = 0; k < len; k++) {
@@ -186,6 +194,8 @@ static void emit_line(testpattern_t *t)
             }
             t->buf[k] = (uint8_t)(v < 0 ? 0 : v > 63 ? 63 : v);
         }
+        if (t->five_bit)
+            for (uint32_t k = 0; k < len; k++) t->buf[k] &= 0x3e;
         src = t->buf;
     }
     ring_write(t, src, len);
