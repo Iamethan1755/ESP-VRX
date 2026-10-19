@@ -27,6 +27,15 @@ VTX ))) XIAO ESP32-C5 (C5VRX-5)   --video bits 1..5 on D5..D9--+--> resistor DAC
 > for the applicable terms. VRX Bridge is an independent add-on: it is not an
 > official C5VRX release and is not affiliated with or endorsed by C5VRX.
 
+## Why I made this
+
+Hey, my name is Ethan. I'm a mechanical engineer, and after watching Joshua
+Bardwell's video on the C5VRX I thought I'd build my own. VRX Bridge sends
+the receiver's picture over Wi-Fi to whatever device you want, a phone,
+tablet or laptop, where you watch it live in the browser with nothing to
+install. It's perfect for showing your family and friends your flying
+without spending the big money on a proper FPV monitor.
+
 ## Layout
 
 ```
