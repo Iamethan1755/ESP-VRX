@@ -1,0 +1,15 @@
+{
+  "evidence": "synthetic PAL field; oracle amplitude/noise context; not measured range",
+  "physical_adc": true,
+  "gain": 4.702179841568557,
+  "samples": 800000,
+  "u85q": {
+    "sinad": 4.711673802513391,
+    "sync": 1.0
+  },
+  "reference": {
+    "sinad": 3.391881834741408,
+    "sync": 1.0,
+    "ambiguity": 0.23766612351860306
+  }
+}

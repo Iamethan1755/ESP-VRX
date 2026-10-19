@@ -1,0 +1,22 @@
+# Two-bundle source-selection oracle; never used in the live CVBS path.
+# Every iteration consumes two input bytes and writes two output bytes.
+# CONTROLLER sets Counter A to 0 or 8 from input bit 0; WORKER routes the
+# selected byte using the same physical instruction in either case.
+
+cfg prefetch true
+cfg eof_on downstream
+# The C5 loopback EOF arrives one write16 before all 256 bytes are emitted;
+# ten downstream trailing bytes drain the prefetched window completely.
+cfg trailing_bytes 10
+cfg lut_width_bits 16
+
+controller:
+    set 19 0,
+    ldctial
+
+worker:
+    set 0..7 0+a..7+a,
+    set 8..15 0+a..7+a,
+    read 16,
+    write 16,
+    jmp controller

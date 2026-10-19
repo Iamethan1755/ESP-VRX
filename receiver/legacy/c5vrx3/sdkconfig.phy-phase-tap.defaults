@@ -1,0 +1,2 @@
+# Opt-in boot-only PHY debug-bus probe. Combine with sdkconfig.defaults.
+CONFIG_C5VRX_PHY_PHASE_TAP_PROBE=y

@@ -1,0 +1,75 @@
+# Dedicated BitScrambler probe verifying single-cycle Counter-A hardware
+# subtraction (LDCTIAL + ADDCTIAL) and 32-entry compact Golden DAC lookup table.
+#
+# Hardware Operation:
+# - WORKER executes LDCTIAL, loading Counter A low byte with -P = (256 - P) & 255
+#   from input bits 0..7, preserves C (in[8..15]) into O24..O31, then reads
+#   next 16-bit input word and writes 16-bit output.
+# - CONTROLLER executes ADDCTIAL, adding preserved C from O24..O31 to Counter A.
+# - Counter A now holds (-P + C) mod 256; its lower 5 bits (A0..A4) are (C - P) mod 32.
+# - WORKER emits A0..A4 to output bytes [delta, delta] on each 50 ns pair.
+#
+# Circular execution across all 8 instruction slots (slots 0..7) without JMP
+# ensures both CONTROLLER and WORKER have free opcode slots for ADDCTIAL and LDCTIAL.
+
+cfg prefetch true
+cfg eof_on downstream
+# The C5 loopback EOF arrives one write16 before all 256 bytes are emitted;
+# ten downstream trailing bytes drain the prefetched window completely.
+cfg trailing_bytes 10
+cfg lut_width_bits 16
+
+# 32-entry compact Golden DAC lookup table (P20, G2)
+lut 20 22 24 26 28 30 32 34 36 38 40 42 44 46 48 50 0 0 0 0 0 0 0 2 4 6 8 10 12 14 16 18
+
+controller_0:
+    set 16..23 o24..o31,
+    addctial
+
+worker_0:
+    set 0..4 a0..a4,
+    set 8..12 a0..a4,
+    set 16..23 0..7,
+    set 24..31 8..15,
+    read 16,
+    write 16,
+    ldctial
+
+controller_1:
+    set 16..23 o24..o31,
+    addctial
+
+worker_1:
+    set 0..4 a0..a4,
+    set 8..12 a0..a4,
+    set 16..23 0..7,
+    set 24..31 8..15,
+    read 16,
+    write 16,
+    ldctial
+
+controller_2:
+    set 16..23 o24..o31,
+    addctial
+
+worker_2:
+    set 0..4 a0..a4,
+    set 8..12 a0..a4,
+    set 16..23 0..7,
+    set 24..31 8..15,
+    read 16,
+    write 16,
+    ldctial
+
+controller_3:
+    set 16..23 o24..o31,
+    addctial
+
+worker_3:
+    set 0..4 a0..a4,
+    set 8..12 a0..a4,
+    set 16..23 0..7,
+    set 24..31 8..15,
+    read 16,
+    write 16,
+    ldctial

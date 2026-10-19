@@ -1,0 +1,337 @@
+{
+  "base_main": "b8d32b90f479feff7fbb34e6ca01cc9ba2d0d697",
+  "runtime_donor": "f1d4167406c68b6fe1694b875697f36c76c0aa87",
+  "afc_donor": "33a8c0b30807a0380e394d5e65954bc45dcb3dd5",
+  "lanes_donor": "fae4dbc514c6141d7a05a58e0cce6b2f066d733b",
+  "prs": [
+    {
+      "number": 157,
+      "title": "fix(video): restore v3.18.1 CVBS swing for HDZero AV-in",
+      "sha": "26330ccb876f5f11fb7585f2b156db07d3c98e50",
+      "merged": false,
+      "disposition": "output regression reference; no Phase5 rollback"
+    },
+    {
+      "number": 154,
+      "title": "Restore analog PHY ownership and add shared native AGC/11p lab",
+      "sha": "885d490a5d30cced013390b089dfe20ef60838a4",
+      "merged": false,
+      "disposition": "snapshot RF ownership, pinned labs and control-race fixes"
+    },
+    {
+      "number": 146,
+      "title": "feat(c5vrx4): Unwrap75 ultrafine with fixed CVBS transfer and PHY ownership fixes",
+      "sha": "f1d4167406c68b6fe1694b875697f36c76c0aa87",
+      "merged": false,
+      "disposition": "detector/gain donor via PR146; fixed ultrafine retained as opt-in"
+    },
+    {
+      "number": 145,
+      "title": "feat(c5vrx4): unwrap span75 with middle-sample trajectory (#144)",
+      "sha": "7564c117e569a558c4dc24bfc7d40e1922724d88",
+      "merged": false,
+      "disposition": "detector/gain donor via PR146; fixed ultrafine retained as opt-in"
+    },
+    {
+      "number": 143,
+      "title": "feat(c5vrx4): protected lane handover with persistent phase history",
+      "sha": "fae4dbc514c6141d7a05a58e0cce6b2f066d733b",
+      "merged": false,
+      "disposition": "port protected lane routing/handover; used by default protected V5"
+    },
+    {
+      "number": 142,
+      "title": "feat(c5vrx4): three-bundle Phase8 with bounded phase history",
+      "sha": "e2dc83d4b2ab3ae62c50cf6fbf2b184941acd71b",
+      "merged": false,
+      "disposition": "detector/gain donor via PR146; fixed ultrafine retained as opt-in"
+    },
+    {
+      "number": 141,
+      "title": "docs(c5vrx4): target pipeline (merges #136 and #140)",
+      "sha": "5e634983f6304e937eb09eb725985c155f3620a6",
+      "merged": false,
+      "disposition": "research reference"
+    },
+    {
+      "number": 133,
+      "title": "fix(c5vrx4): use Direct Gain V5 by default",
+      "sha": "9736f1941add0e1b7cb21e743ea03628d1368bf2",
+      "merged": false,
+      "disposition": "detector/gain donor via PR146; fixed ultrafine retained as opt-in"
+    },
+    {
+      "number": 132,
+      "title": "fix(scan): among centred candidates the strongest RF wins (#128 follow-up)",
+      "sha": "caac350096d3b094b77da31ef3d0171b130b6524",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 131,
+      "title": "fix(scan): select channels by analog-video confidence, not RF strength (#128)",
+      "sha": "2832a175b2ee15a045b6b5316a6aa5ae0e0a0ed4",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 130,
+      "title": "feat: range work — lanes with noise cap, BW gear, gain fixes, HC demodulator (opt-in)",
+      "sha": "d7c93e1408e698fe337a163fe49d0558ddcc256b",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 129,
+      "title": "C5VRX-4: isolated long-range pipeline research",
+      "sha": "737116821c38422353df165cff8fe2e60ad17f1a",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 127,
+      "title": "Direct Gain V5: 200 us observer, descriptor dedupe, anti-hunt damping",
+      "sha": "d55104e89645906e7888597f0b14868aa0f0973f",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 126,
+      "title": "Direct Gain V4 default (direct, full range), native AGC as menu option, PR #122 findings",
+      "sha": "e5867ea88d6e4b0a7b87c89af4de03863ea77258",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 122,
+      "title": "Native AGC V2: telemetry, AFC V2, range A/B tooling (#121 #115 #117 #118)",
+      "sha": "33a8c0b30807a0380e394d5e65954bc45dcb3dd5",
+      "merged": false,
+      "disposition": "port AFC V2 measurement/controller and validated capture; omit older demod/native policy"
+    },
+    {
+      "number": 120,
+      "title": "Native hardware AGC as default + Phase8 origin-collapse oracle (#119)",
+      "sha": "28126938c372d5b8504ab006b06e03a861929a8b",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 112,
+      "title": "Update README for live Phase8 and Gain V3",
+      "sha": "648eba875dcf2292827b25ddb7b3bda3b6d5b7c2",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 110,
+      "title": "Use live Phase8 demodulation with Direct Gain V3",
+      "sha": "63b78c92d04088fbf3636908a4f8f2d54ed65b0e",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 108,
+      "title": "Experimental predictive Direct Gain V3 core",
+      "sha": "315df478e224ac40b9139f3c29386bd65724d68f",
+      "merged": false,
+      "disposition": "superseded or incompatible live schedule; retain evidence, omit live changes"
+    },
+    {
+      "number": 106,
+      "title": "Measure RSSI and centered Q4 headroom for Direct Gain V3",
+      "sha": "0b89f8b91256f169ea216814035cd379aa878ce8",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 104,
+      "title": "Test lower-swing Phase8-HR on live video",
+      "sha": "fcbbc8e8d3b5ec22c921960345bec87e55bc7d5c",
+      "merged": false,
+      "disposition": "superseded or incompatible live schedule; retain evidence, omit live changes"
+    },
+    {
+      "number": 102,
+      "title": "Phase8-HR two-bundle hardware oracle",
+      "sha": "c601acb10818064335b9356e898ff8a45bfa91bb",
+      "merged": false,
+      "disposition": "superseded or incompatible live schedule; retain evidence, omit live changes"
+    },
+    {
+      "number": 100,
+      "title": "Golden hard guard with phase delta diagnostics",
+      "sha": "a8a6f66e6259da75b1c8a3de33a41f492192f875",
+      "merged": false,
+      "disposition": "superseded or incompatible live schedule; retain evidence, omit live changes"
+    },
+    {
+      "number": 96,
+      "title": "feat(rf): Direct Gain V2 physical tuple control (#95)",
+      "sha": "6642ad505a1a5d847c7e7fa344bbd16bef971ae8",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 90,
+      "title": "feat(demod): BitScrambler Counter-A hardware subtraction and 960-entry LUT optimization for Phase5-360",
+      "sha": "e55c0b113473c6d6267ad402cb42f824a65959c6",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 89,
+      "title": "feat(lab): probe ESP32-C5 MODEM_DIAG for a phase-like tap",
+      "sha": "de5783c0a076fefe97d8ea629526591a612b0e29",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 85,
+      "title": "fix: stabilize Direct Gain and expose live Phase5c limits",
+      "sha": "9302b93f2a7d284a8f402b5367a781f99e3a1cbe",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 83,
+      "title": "feat(afc): Pedestal-Gated Back-Porch AFC with zero luminance bias",
+      "sha": "2e789f624d26c8cf976d6407bb3dfa13eb0a26ff",
+      "merged": false,
+      "disposition": "superseded or incompatible live schedule; retain evidence, omit live changes"
+    },
+    {
+      "number": 81,
+      "title": "feat(demod): Phase5c Static Squelch & Smooth Direct Gain Slew Rate",
+      "sha": "f78d0f8743fd67e168dd2cd783228d39d4a23fc7",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 80,
+      "title": "feat(gain): Carrier Authenticator & RSSI Oracle Probe ('R')",
+      "sha": "5c41e748afc9bebb35fba5484844aafce90f1d25",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 79,
+      "title": "feat(gain): Direct Gain Feed-Forward Control with Inverse-Q4 Transfer",
+      "sha": "22ca7850cc9f5c3303b2915c1d8f8fa1167f75c4",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 78,
+      "title": "feat(demod): Phase5-360 (Exact Adjacent50) Demodulator and ARC V3 Default Profile",
+      "sha": "fe8b051bdc867fbef936db123b28c3e36ae468ea",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 62,
+      "title": "feat: add ARC V5 predictive self-calibrating gain control",
+      "sha": "75841ffc6abd265c813209ccdaa352cb7bc3b1af",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 58,
+      "title": "feat: add gain-first ARC V3 range controller",
+      "sha": "c99b532235146a90e258f59a53ae890d1ac14e55",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 57,
+      "title": "feat: add ARC V3 RX auto lab",
+      "sha": "af339d05581c63662ace59b5c8889c4d1b1d4b04",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 56,
+      "title": "feat: add PRE-Q4 receiver characterization lab",
+      "sha": "b29d7adcfb742d2d97a193affcc0144cdf376319",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 52,
+      "title": "feat: add ARC vendor-aware receive chain",
+      "sha": "88377a9eb9a7633acf50b19da0399af8854a5186",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 46,
+      "title": "feat: add two-stage Trajectory v2 weak-signal demodulator",
+      "sha": "57f11176e51e34c63176934966f8f772de1cf26c",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 45,
+      "title": "feat: Range v2 temporal Fusion and weak-signal research",
+      "sha": "599e108914b8fd5f425b1f4a7a812c763734e716",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 43,
+      "title": "feat: add experimental IQ Fusion Engine and contextual PHY learner",
+      "sha": "be096187b4e8d52d8e2d7afb10efcc9062d96d73",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 37,
+      "title": "feat: winding-aware range control and semantic CVBS quality",
+      "sha": "c4db7835a80607e45a3b70092787fdaadbdb398f",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 36,
+      "title": "fix: recover range acquisition and evaluate gain trials",
+      "sha": "7cb32983a7f69210740093b63fa55bdc20aa4d1e",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 35,
+      "title": "feat(lab): characterize RX gain and lag events for #27/#28",
+      "sha": "6debf47394a992f381e3f9d73d1678d4730c8185",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 34,
+      "title": "feat(menu): persist settings, add channel search, and improve raster",
+      "sha": "c1981ca5547a1c97d2fa42e3841ac7d461b7569d",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 31,
+      "title": "fix(web/video): reliable flashing, stable RF control, modern menu",
+      "sha": "54c7ba5bb38059358de1cf033afd55ac86828a17",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 26,
+      "title": "fix(osd): resolve 1-second freeze, 800ns sync phase inversion, and add dual NTSC/PAL standard support",
+      "sha": "fa007e4a4ae49950dd35ed34aeda717bff3d2ce0",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    },
+    {
+      "number": 24,
+      "title": "C5VRX-3: ultra-minimal Seamless 32K production receiver (Zero-EOF Circular GDMA)",
+      "sha": "06e82dbea46cb63d6a0079f806997d2999e95869",
+      "merged": true,
+      "disposition": "inherited current-main runtime; later implementations supersede historical defaults"
+    }
+  ]
+}

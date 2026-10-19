@@ -1,0 +1,21 @@
+name: Web tools checks
+on:
+  pull_request:
+    paths: ["web/**", "main/**", "tools/prepare_pages_site.sh", ".github/workflows/web-checks.yml"]
+  push:
+    branches: [main]
+    paths: ["web/**", "main/**", "tools/prepare_pages_site.sh", ".github/workflows/web-checks.yml"]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check web/app.js
+      - run: node --check web/serial-terminal.js
+      - run: node --check web/receiver-console.js
+      - run: node --test web/*.test.mjs

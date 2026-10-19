@@ -1,0 +1,69 @@
+menu "C5VRX diagnostic probes"
+    config C5VRX_PHY_PHASE_TAP_PROBE
+        bool "Capture bounded MODEM_DIAG lane traces at boot, then start video"
+        default n
+        help
+            Capture all 32 MODEM_DIAG lanes under four previously tested
+            selector states on the production IQ GPIOs before video starts.
+            Restore all selector registers and the normal IQ routing after
+            capture. CPU snapshots are asynchronous and cannot alone prove a
+            40 MS/s phase tap. This option is for an experimental PR build.
+
+    config C5VRX_BS_RELATIVE_WORKER_PROBE
+        bool "Run Counter-A relative-mux loopback oracle before starting video"
+        default n
+        help
+            Run a finite two-bundle BitScrambler loopback test at boot and
+            print BS_REL_WORKER PASS/FAIL, then start the normal RF/video path.
+
+    config C5VRX_BS_RELATIVE_MIDDLE_PROBE
+        bool "Run alternating middle/endpoint relative-mux loopback probe before starting video"
+        default y
+        help
+            Run a finite two-bundle BitScrambler loopback test at boot to prove
+            alternating middle-sample and endpoint-sample Phase5 extraction,
+            then start the normal RF/video path.
+
+    config C5VRX_BS_ADDCTIA_PROBE
+        bool "Run Counter-A ADDCTIA hardware subtraction loopback probe before starting video"
+        default y
+        help
+            Run a finite BitScrambler loopback test at boot to prove
+            single-cycle Counter-A hardware subtraction (ADDCTIAL + LDCTIAL)
+            and compact 32-entry DAC lookup for Phase5-360, then start the
+            normal RF/video path.
+endmenu
+
+menu "C5VRX experimental video demodulators"
+    config C5VRX_PHASE8_HR_LIVE_TEST
+        bool "Run full-range adjacent Phase8 on live 6BIT@40 video"
+        default y
+        help
+            Experimental full signed Phase8 delta mapping plus Direct Gain V3.
+            Maps -128..+127 phase bins across the 64 DAC levels and forces
+            6BIT@40 output. A phase step crossing +/-180 degrees still aliases.
+
+    config C5VRX_PHASE5_360_LIVE
+        bool "Use Phase5-360 research program (Golden DAC output only)"
+        default y
+        help
+            Load the two-bundle middle-sample routing experiment. Both worker
+            branches currently output the same Golden DAC bytes. No adjacent
+            winding correction is active in the live firmware.
+
+    config C5VRX_RELATIVE_GOLDEN_LIVE
+        bool "Use relative-mux Golden in the live 6-bit video path"
+        default n
+        help
+            Replace only the 6-bit Golden BitScrambler program with the
+            two-bundle Counter-A relative-mux oracle. Intended for live
+            equivalence testing; no winding correction is performed.
+endmenu
+
+config C5VRX_DIRECT_GAIN_V3_EXPERIMENT
+    bool "Run predictive Direct Gain V3 on the default automatic RX profile"
+    default y
+    help
+        Experimental issue #107 build. The existing live demodulator stays
+        selected, while V3 alone owns automatic RF gain on the default
+        profile. Hardware gain and video validation is required before merge.

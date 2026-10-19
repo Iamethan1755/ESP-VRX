@@ -1,0 +1,18 @@
+RANGE_DIAG channel=A1 freq=5865 in_spec=1
+RANGE_DIAG filter requested code=8 skirt=32 bw=BW20 class=narrow applied=1 (read back code=8 skirt=32) calibration=loaded
+PROFILE active=DEFAULT 12MHZ KP0.85 reason=inconclusive_at_startup measured_this_session_x100=-1 pending=none stored_x100=0 (provisional) measuring=live windows=0 batches=0 rejected_batches=0 observed=0 gated=0 gated_cn=0
+PROFILE monitor period_s=30 collecting=1 next_in_s=0 decisions=0 timeouts=1 last_x100=-1 last_age_s=-1 agree=0 mismatch=0 min_cn_db=8 mode=live_switch pending=none switches=0 switch_fail=0
+RANGE_DIAG afc locked=0 offset_khz=0 cfo_khz=0
+RANGE_DIAG gain index=60 max=83 rf_stage=8 rf_code=487 bb=15 fine=5 top_rf_stage_from=54 at_max=0 state=1
+RANGE_DIAG chain sphase=settled dc_ok=1 dc_held=0 lane=ultrafine faults=0
+RANGE_DIAG iq p50=15 coherence=100 cn_est_x10=200 (model, 10 MHz class) origin_pm=0 clip_pm=0 video_recent=0
+RANGE_DIAG verdict=OK strong carrier with gain headroom
+RANGE_DIAG last_10s seconds=10 cn_est_x10 median=200 min=200 gain median=60 (model only; compare repeated controlled setups)
+RANGE_DIAG history seconds=60 sync_evidence_ok_pct=0 at_max_gain_pct=0 dropouts=2 UNKNOWN=2 CALIBRATION_OR_PHY=0 FAST_EVIDENCE_LOSS=0 AT_RF_FLOOR=0 DEMOD_CLIFF=0
+FIELD_DIAG_EVENT dropout t=278 category=UNKNOWN duration_s=2 channel=snapshot freq=5865 profile=DEFAULT 12MHZ KP0.85
+FIELD_DIAG_EVENT last_ok t=277 t_ms=277449 sync_valid_pct=62 measurement_coverage_pct=68 sync_given_measured_pct=90 gain=21 max=83 rf_stage=2 rf_code=0 bb=15 fine=4 p50=30 p95=15 coherence=97 origin_pm=0 clip_pm=0 cn_est_x10=103 cn_model_valid=1 offset_khz=0 cfo_khz=0 afc=0 afc_step=0 filter_ok=1 filter_code=8 skirt=32 bw20_requested=1 freq=5865 profile=DEFAULT 12MHZ KP0.85 sphase_ok=1 dc_ok=1 fault=0 faults_delta=0 gain_writes=519 fade_holds=139 overloads=1579 in_spec=1 kp_x100=85 lp=0
+FIELD_DIAG_EVENT drop t=278 t_ms=278490 sync_valid_pct=5 measurement_coverage_pct=5 sync_given_measured_pct=100 gain=27 max=83 rf_stage=3 rf_code=65 bb=7 fine=3 p50=23 p95=37 coherence=88 origin_pm=3 clip_pm=0 cn_est_x10=56 cn_model_valid=1 offset_khz=0 cfo_khz=0 afc=0 afc_step=0 filter_ok=1 filter_code=8 skirt=32 bw20_requested=1 freq=5865 profile=DEFAULT 12MHZ KP0.85 sphase_ok=1 dc_ok=1 fault=0 faults_delta=0 gain_writes=601 fade_holds=156 overloads=1588 in_spec=1 kp_x100=85 lp=0
+FIELD_DIAG_EVENT dropout t=281 category=UNKNOWN duration_s=>=314 channel=snapshot freq=5865 profile=DEFAULT 12MHZ KP0.85
+FIELD_DIAG_EVENT last_ok t=280 t_ms=280597 sync_valid_pct=52 measurement_coverage_pct=64 sync_given_measured_pct=81 gain=21 max=83 rf_stage=2 rf_code=0 bb=15 fine=4 p50=39 p95=31 coherence=98 origin_pm=0 clip_pm=133 cn_est_x10=120 cn_model_valid=1 offset_khz=0 cfo_khz=-476 afc=0 afc_step=0 filter_ok=1 filter_code=8 skirt=32 bw20_requested=1 freq=5865 profile=DEFAULT 12MHZ KP0.85 sphase_ok=1 dc_ok=1 fault=0 faults_delta=0 gain_writes=681 fade_holds=219 overloads=2479 in_spec=1 kp_x100=85 lp=0
+FIELD_DIAG_EVENT drop t=281 t_ms=281621 sync_valid_pct=0 measurement_coverage_pct=0 sync_given_measured_pct=0 gain=29 max=83 rf_stage=3 rf_code=65 bb=7 fine=1 p50=20 p95=37 coherence=85 origin_pm=61 clip_pm=0 cn_est_x10=44 cn_model_valid=1 offset_khz=0 cfo_khz=0 afc=0 afc_step=0 filter_ok=1 filter_code=8 skirt=32 bw20_requested=1 freq=5865 profile=DEFAULT 12MHZ KP0.85 sphase_ok=1 dc_ok=1 fault=0 faults_delta=0 gain_writes=770 fade_holds=245 overloads=2490 in_spec=1 kp_x100=85 lp=0
+GAINMAP v=4 max=83 band5=1 freq=5865 entries=14 20:159:1:350 21:155:8:153 22:173:7:149 23:237:8:146 24:276:14:154 25:303:15:97 26:361:15:168 27:448:15:171 28:579:9:136 29:516:15:117 30:586:15:160 31:827:13:115 32:1024:1:50 33:924:1:350

@@ -1,4 +1,0 @@
-[submodule "receiver"]
-	path = receiver
-	url = ../C5VRX.git
-	branch = wifi-bridge

@@ -1,0 +1,58 @@
+name: Deploy Web Flasher
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "tools/prepare_pages_site.sh"
+      - ".github/workflows/deploy-web.yml"
+  workflow_run:
+    workflows: ["C5VRX-5 Build"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# GitHub Pages accepts one deployment at a time. Never cancel an active Pages
+# deployment: release/PR mirror refreshes queue behind the current deployment.
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy GitHub Pages Site
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout trusted main web source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Build same-origin firmware mirror
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash tools/prepare_pages_site.sh pages-site
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload web flasher and mirrored firmware
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages-site/
+
+      - name: Deploy GitHub Pages site
+        id: deployment
+        uses: actions/deploy-pages@v4

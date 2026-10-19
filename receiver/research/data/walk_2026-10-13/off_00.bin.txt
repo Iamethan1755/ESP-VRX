@@ -1,0 +1,1 @@
+IQSNAP_BEGIN bytes=8190 rate_hz=40000000 format=Ihigh_Qlow gain=59 lane=2 freq_mhz=5865 fnv1a=289abe69

@@ -1,0 +1,272 @@
+17:31:10 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0
+17:31:10 | =======================================================
+17:31:10 | C5VRX-3 SEAMLESS 16K (Zero-EOF Descriptor Ring)
+17:31:10 | GDMA Ring:                  dist=8191 (rx_off=4092, tx_off=12285)
+17:31:10 | Descriptors:                rx_dscr=0x4082e7bc, tx_dscr=0x4082f1b8
+17:31:10 | Zero-EOF Status:            RX patched=5 nodes, TX patched=5 nodes
+17:31:10 | Adaptive AGC Mode:          ACTIVE (State=SEARCH)
+17:31:10 | Gain Settings:              G_actual=32, G_shadow_rec=32 (reg=0x20c053e2)
+17:31:10 | FM Vector Metrics:          P_median=0, Q_phase=0%, Clip=0, Origin=256
+17:31:10 | PARLIO RX FIFO overflow:    0 (raw=0)
+17:31:10 | PARLIO TX FIFO empty (udf): 0 (raw=0)
+17:31:10 | PARLIO TX EOF:              0 (raw=0)
+17:31:10 | BitScrambler TX empty:      0
+17:31:10 | RX Sample Edge:             POS (rx_clk_i_inv=0)
+17:31:10 | Keys: 's' shadow, 'a' active, 'm' manual, '+' / '-' gain, 'e' edge
+17:31:10 | =======================================================
+17:31:10 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:11 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:12 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:13 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:14 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:15 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:16 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:17 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:18 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:19 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:20 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:21 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:22 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:23 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:24 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:25 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:26 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:27 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:28 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:29 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:30 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:31 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:32 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:33 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:34 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:35 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:36 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:37 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:38 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:39 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:40 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:41 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:42 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:43 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:44 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:45 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:46 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:47 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:48 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:49 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:50 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:51 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:52 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:53 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:54 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:55 | [AGC:ACTIVE] State=SEARCH | G_act=32 G_shd=32 | P_med=0  Q_ph= 0% | clip=0  orig=256
+17:31:56 | [AGC:ACTIVE] State=LEARN  | G_act=34 G_shd=34 | P_med=8  Q_ph=58% | clip=0  orig=37
+17:31:57 | [AGC:ACTIVE] State=LEARN  | G_act=42 G_shd=42 | P_med=9  Q_ph=75% | clip=0  orig=23
+17:31:58 | [AGC:ACTIVE] State=LEARN  | G_act=40 G_shd=40 | P_med=25 Q_ph=100% | clip=0  orig=0
+17:31:59 | [AGC:ACTIVE] State=LEARN  | G_act=50 G_shd=50 | P_med=65 Q_ph=100% | clip=118 orig=0
+17:32:00 | [AGC:ACTIVE] State=LEARN  | G_act=44 G_shd=44 | P_med=5  Q_ph=49% | clip=0  orig=51
+17:32:01 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=41 Q_ph=100% | clip=0  orig=0
+17:32:02 | [AGC:ACTIVE] State=TRACK  | G_act=58 G_shd=58 | P_med=25 Q_ph=99% | clip=0  orig=0
+17:32:03 | [AGC:ACTIVE] State=TRACK  | G_act=56 G_shd=56 | P_med=40 Q_ph=100% | clip=0  orig=0
+17:32:04 | [AGC:ACTIVE] State=TRACK  | G_act=58 G_shd=58 | P_med=25 Q_ph=100% | clip=0  orig=0
+17:32:05 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=8  Q_ph=51% | clip=0  orig=57
+17:32:06 | [AGC:ACTIVE] State=LEARN  | G_act=56 G_shd=56 | P_med=74 Q_ph=100% | clip=161 orig=0
+17:32:07 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=5  Q_ph=41% | clip=0  orig=81
+17:32:08 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=13 Q_ph=94% | clip=0  orig=0
+17:32:09 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=53 Q_ph=100% | clip=48 orig=0
+17:32:10 | [AGC:ACTIVE] State=LEARN  | G_act=58 G_shd=58 | P_med=17 Q_ph=100% | clip=0  orig=0
+17:32:11 | [AGC:ACTIVE] State=LEARN  | G_act=54 G_shd=54 | P_med=1  Q_ph= 0% | clip=0  orig=248
+17:32:12 | [AGC:ACTIVE] State=TRACK  | G_act=50 G_shd=50 | P_med=20 Q_ph=100% | clip=0  orig=0
+17:32:13 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=26 Q_ph=100% | clip=0  orig=0
+17:32:14 | [AGC:ACTIVE] State=LEARN  | G_act=58 G_shd=58 | P_med=2  Q_ph= 0% | clip=0  orig=195
+17:32:15 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=5  Q_ph=35% | clip=0  orig=89
+17:32:16 | [AGC:ACTIVE] State=LEARN  | G_act=60 G_shd=60 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:32:17 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=1  Q_ph= 0% | clip=0  orig=254
+17:32:18 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=1  Q_ph= 0% | clip=0  orig=256
+17:32:19 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:32:20 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=231
+17:32:21 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=1  Q_ph= 0% | clip=0  orig=256
+17:32:22 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=1  Q_ph= 0% | clip=0  orig=256
+17:32:23 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=1  Q_ph= 0% | clip=0  orig=245
+17:32:24 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=1  Q_ph= 0% | clip=0  orig=256
+17:32:25 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=1  Q_ph= 0% | clip=0  orig=256
+17:32:26 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=1  Q_ph= 0% | clip=0  orig=256
+17:32:27 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=1  Q_ph= 0% | clip=0  orig=256
+17:32:28 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=1  Q_ph= 0% | clip=0  orig=244
+17:32:29 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=1  Q_ph= 0% | clip=0  orig=256
+17:32:30 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=1  Q_ph= 0% | clip=0  orig=256
+17:32:31 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:32:32 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=1  Q_ph= 0% | clip=0  orig=256
+17:32:33 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=4  Q_ph= 5% | clip=0  orig=176
+17:32:34 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=1  Q_ph= 0% | clip=0  orig=249
+17:32:35 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=1  Q_ph= 0% | clip=0  orig=256
+17:32:36 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=4  Q_ph= 7% | clip=0  orig=166
+17:32:37 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=5  Q_ph=36% | clip=0  orig=123
+17:32:38 | [AGC:ACTIVE] State=TRACK  | G_act=62 G_shd=62 | P_med=25 Q_ph=100% | clip=0  orig=0
+17:32:39 | [AGC:ACTIVE] State=LEARN  | G_act=52 G_shd=52 | P_med=10 Q_ph=92% | clip=0  orig=0
+17:32:40 | [AGC:ACTIVE] State=TRACK  | G_act=56 G_shd=56 | P_med=17 Q_ph=100% | clip=0  orig=0
+17:32:41 | [AGC:ACTIVE] State=LEARN  | G_act=56 G_shd=56 | P_med=50 Q_ph=100% | clip=0  orig=0
+17:32:42 | [AGC:ACTIVE] State=LEARN  | G_act=44 G_shd=44 | P_med=9  Q_ph=66% | clip=0  orig=23
+17:32:43 | [AGC:ACTIVE] State=TRACK  | G_act=50 G_shd=50 | P_med=25 Q_ph=100% | clip=0  orig=0
+17:32:44 | [AGC:ACTIVE] State=LEARN  | G_act=48 G_shd=48 | P_med=18 Q_ph=100% | clip=0  orig=0
+17:32:45 | [AGC:ACTIVE] State=TRACK  | G_act=46 G_shd=46 | P_med=10 Q_ph=79% | clip=0  orig=8
+17:32:46 | [AGC:ACTIVE] State=LEARN  | G_act=48 G_shd=48 | P_med=16 Q_ph=100% | clip=0  orig=0
+17:32:47 | [AGC:ACTIVE] State=LEARN  | G_act=48 G_shd=48 | P_med=5  Q_ph=25% | clip=0  orig=99
+17:32:48 | [AGC:ACTIVE] State=LEARN  | G_act=52 G_shd=52 | P_med=40 Q_ph=100% | clip=0  orig=0
+17:32:49 | [AGC:ACTIVE] State=LEARN  | G_act=46 G_shd=46 | P_med=8  Q_ph=54% | clip=0  orig=45
+17:32:50 | [AGC:ACTIVE] State=LEARN  | G_act=40 G_shd=40 | P_med=52 Q_ph=100% | clip=53 orig=0
+17:32:51 | [AGC:ACTIVE] State=TRACK  | G_act=48 G_shd=48 | P_med=29 Q_ph=100% | clip=0  orig=0
+17:32:52 | [AGC:ACTIVE] State=LEARN  | G_act=36 G_shd=36 | P_med=1  Q_ph= 0% | clip=0  orig=256
+17:32:53 | [AGC:ACTIVE] State=LEARN  | G_act=40 G_shd=40 | P_med=25 Q_ph=100% | clip=0  orig=0
+17:32:54 | [AGC:ACTIVE] State=LEARN  | G_act=42 G_shd=42 | P_med=13 Q_ph=100% | clip=0  orig=0
+17:32:55 | [AGC:ACTIVE] State=LEARN  | G_act=32 G_shd=32 | P_med=25 Q_ph=100% | clip=0  orig=0
+17:32:56 | [AGC:ACTIVE] State=LEARN  | G_act=30 G_shd=30 | P_med=5  Q_ph=43% | clip=0  orig=72
+17:32:57 | [AGC:ACTIVE] State=LEARN  | G_act=24 G_shd=24 | P_med=45 Q_ph=100% | clip=0  orig=0
+17:32:58 | [AGC:ACTIVE] State=TRACK  | G_act=36 G_shd=36 | P_med=26 Q_ph=100% | clip=0  orig=0
+17:32:59 | [AGC:ACTIVE] State=LEARN  | G_act=42 G_shd=42 | P_med=65 Q_ph=99% | clip=103 orig=0
+17:33:00 | [AGC:ACTIVE] State=LEARN  | G_act=36 G_shd=36 | P_med=26 Q_ph=100% | clip=0  orig=0
+17:33:01 | [AGC:ACTIVE] State=LEARN  | G_act=36 G_shd=36 | P_med=52 Q_ph=100% | clip=43 orig=0
+17:33:02 | [AGC:ACTIVE] State=TRACK  | G_act=32 G_shd=32 | P_med=1  Q_ph= 0% | clip=0  orig=256
+17:33:03 | [AGC:ACTIVE] State=LEARN  | G_act=32 G_shd=32 | P_med=8  Q_ph=59% | clip=0  orig=36
+17:33:04 | [AGC:ACTIVE] State=LEARN  | G_act=32 G_shd=32 | P_med=10 Q_ph=93% | clip=0  orig=2
+17:33:05 | [AGC:ACTIVE] State=TRACK  | G_act=32 G_shd=32 | P_med=34 Q_ph=100% | clip=0  orig=0
+17:33:06 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:07 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:08 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:09 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:10 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:11 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:12 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:13 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:14 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:15 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:16 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:17 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:18 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:19 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:20 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:21 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:22 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:23 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:24 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:25 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:26 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:27 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:28 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:29 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:30 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:31 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:32 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:33 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:34 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:35 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:36 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:37 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:38 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:39 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:40 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:41 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:42 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:43 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:44 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:45 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:46 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:47 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:48 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:49 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:50 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:51 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:52 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:53 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:54 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:55 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:56 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:57 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:58 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:33:59 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:34:00 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:34:01 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:34:02 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:34:03 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:34:04 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:34:05 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:34:06 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:34:07 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:34:08 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:34:09 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+17:34:10 | [AGC:ACTIVE] State=LEARN  | G_act=62 G_shd=62 | P_med=2  Q_ph= 0% | clip=0  orig=256
+
+================================================================================
+2026-09-22 ARC V3 EXP — 25 mW VTX — close -> far -> close
+================================================================================
+Context:
+- Same ARC V3 gain-first controller family used for the 200 mW walk tests.
+- VTX power intentionally reduced from 200 mW to 25 mW.
+- Relative TX-power change: 10*log10(25/200) = -9.03 dB.
+- User-reported path: close -> far -> close.
+- These [CARRIER] lines expose P/Q/G only; origin/clip/winding were not present
+  in this capture and must not be inferred.
+- This is a moving indoor walk, not a calibrated step-attenuator test.
+
+Raw capture:
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=26 Q=99% G=29)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=10 Q=88% G=29)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=8 Q=56% G=29)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=8 Q=59% G=29)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=13 Q=96% G=37)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=18 Q=100% G=58)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=26 Q=99% G=64)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=20 Q=99% G=60)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=13 Q=96% G=57)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=9 Q=69% G=57)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=13 Q=93% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=8 Q=60% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=26 Q=99% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=17 Q=98% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=9 Q=64% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=10 Q=73% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=9 Q=62% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=16 Q=94% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=13 Q=91% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=10 Q=75% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=8 Q=62% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=26 Q=100% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=9 Q=66% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=10 Q=74% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=13 Q=91% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=9 Q=69% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=13 Q=92% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=13 Q=94% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=25 Q=99% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=26 Q=99% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=25 Q=99% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=9 Q=73% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=10 Q=77% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=26 Q=99% G=81)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=25 Q=99% G=75)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=13 Q=97% G=75)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=16 Q=100% G=67)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=18 Q=99% G=51)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=34 Q=99% G=51)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=25 Q=99% G=40)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=16 Q=99% G=28)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=8 Q=62% G=28)
+[CARRIER] Locked on A1 (5865 MHz) in Boscam A (A) (P=8 Q=63% G=28)
+
+Observed trajectory summary:
+close -> far: G29 -> G37 -> G58/G64/G60/G57 -> G81
+far plateau:  G81 for 24 consecutive logged carrier samples before descent
+far -> close: G81 -> G75 -> G67 -> G51 -> G40 -> G28
+
+Interpretation guardrails:
+- G81 still frequently produced high Q (90-100%) and P in the useful range,
+  so this walk did not show a sustained raw-Q4 collapse at the table ceiling.
+- The far plateau means the controller was gain-limited there, but not
+  necessarily information-limited in every window.
+- Compared with prior 200 mW strong/extra-close observations around G14-G18,
+  the 25 mW close end around G28-G29 is consistent with substantially more
+  pre-Q4 gain being required after a -9.03 dB TX-power reduction.
+- Do NOT convert that observation into a global dB-per-gain-index constant:
+  position, multipath, antenna orientation, RF-stage transitions and the
+  non-linear vendor gain table are confounders.
+

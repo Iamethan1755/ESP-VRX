@@ -1,0 +1,5 @@
+configuration            threshold_dB  SINAD@4dB  SINAD@8dB
+plain-chan20                     1.80       0.68       5.73
+plain-14MHz                      0.85       1.85       6.38
+regen-chan20                    -9.00       0.68       5.73
+regen-14MHz                     -9.00       1.85       6.38

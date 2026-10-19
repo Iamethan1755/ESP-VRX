@@ -1,0 +1,187 @@
+{
+  "evidence": "synthetic FM probe, not displayed PAL/NTSC or measured range",
+  "trained": false,
+  "phases": 64,
+  "rows": [
+    {
+      "radius": 32,
+      "sigma": 8,
+      "stress": "nominal",
+      "proposed": {
+        "name": "ultrafine",
+        "i": [
+          4,
+          5,
+          6,
+          9
+        ],
+        "q": [
+          4,
+          5,
+          6,
+          9
+        ],
+        "gain": 1.0,
+        "risk_hz2": 6050172371620.504,
+        "screen": 0.045024035697693754,
+        "risks": [
+          6050172371620.504
+        ]
+      },
+      "u85q_sinad": 8.646820483089654,
+      "reference_sinad": 10.116341418103048,
+      "ambiguity": 0.23652990812784658,
+      "model_context": "known synthetic radius/noise; mismatch during fade/echo"
+    },
+    {
+      "radius": 64,
+      "sigma": 8,
+      "stress": "nominal",
+      "proposed": {
+        "name": "ultrafine",
+        "i": [
+          4,
+          5,
+          6,
+          9
+        ],
+        "q": [
+          4,
+          5,
+          6,
+          9
+        ],
+        "gain": 1.0,
+        "risk_hz2": 1555191415785.4902,
+        "screen": 0.01058548577270435,
+        "risks": [
+          1555191415785.4902
+        ]
+      },
+      "u85q_sinad": 14.238743454229105,
+      "reference_sinad": 16.35483869221058,
+      "ambiguity": 0.23698490296971836,
+      "model_context": "known synthetic radius/noise; mismatch during fade/echo"
+    },
+    {
+      "radius": 160,
+      "sigma": 8,
+      "stress": "fold",
+      "proposed": {
+        "name": "fine",
+        "i": [
+          5,
+          6,
+          7,
+          9
+        ],
+        "q": [
+          5,
+          6,
+          7,
+          9
+        ],
+        "gain": 1.0,
+        "risk_hz2": 3602260553413.312,
+        "screen": 0.0029643881460643673,
+        "risks": [
+          3602260553413.312
+        ]
+      },
+      "u85q_sinad": 4.294800998782241,
+      "reference_sinad": 21.37264759817225,
+      "ambiguity": 0.20626879177604054,
+      "model_context": "known synthetic radius/noise; mismatch during fade/echo"
+    },
+    {
+      "radius": 64,
+      "sigma": 24,
+      "stress": "weak",
+      "proposed": {
+        "name": "ultrafine",
+        "i": [
+          4,
+          5,
+          6,
+          9
+        ],
+        "q": [
+          4,
+          5,
+          6,
+          9
+        ],
+        "gain": 1.0,
+        "risk_hz2": 11490926571398.295,
+        "screen": 0.08625660913510513,
+        "risks": [
+          11490926571398.295
+        ]
+      },
+      "u85q_sinad": 6.073316221225308,
+      "reference_sinad": 7.6790864682644,
+      "ambiguity": 0.24011976628233764,
+      "model_context": "known synthetic radius/noise; mismatch during fade/echo"
+    },
+    {
+      "radius": 64,
+      "sigma": 8,
+      "stress": "fade",
+      "proposed": {
+        "name": "ultrafine",
+        "i": [
+          4,
+          5,
+          6,
+          9
+        ],
+        "q": [
+          4,
+          5,
+          6,
+          9
+        ],
+        "gain": 1.0,
+        "risk_hz2": 1555191415785.4902,
+        "screen": 0.01058548577270435,
+        "risks": [
+          1555191415785.4902
+        ]
+      },
+      "u85q_sinad": 3.9816282879199862,
+      "reference_sinad": -4.137329801922717,
+      "ambiguity": 0.2388295857072714,
+      "model_context": "known synthetic radius/noise; mismatch during fade/echo"
+    },
+    {
+      "radius": 64,
+      "sigma": 8,
+      "stress": "echo",
+      "proposed": {
+        "name": "ultrafine",
+        "i": [
+          4,
+          5,
+          6,
+          9
+        ],
+        "q": [
+          4,
+          5,
+          6,
+          9
+        ],
+        "gain": 1.0,
+        "risk_hz2": 1555191415785.4902,
+        "screen": 0.01058548577270435,
+        "risks": [
+          1555191415785.4902
+        ]
+      },
+      "u85q_sinad": 3.8542158791251255,
+      "reference_sinad": 4.26918350556168,
+      "ambiguity": 0.2357061882077663,
+      "model_context": "known synthetic radius/noise; mismatch during fade/echo"
+    }
+  ]
+}

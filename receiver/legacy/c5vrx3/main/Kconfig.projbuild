@@ -1,0 +1,163 @@
+menu "C5VRX board and video DAC"
+    config C5VRX_CUSTOM_BOARD
+        bool "Configure a custom ESP32-C5 board"
+        default n
+        help
+            Defaults preserve the XIAO wiring. Use GPIO numbers, not board D/A
+            labels. IQ pins are internal diagnostic loopbacks, not analog inputs.
+            See docs/custom-board.md for electrical and console restrictions.
+
+    choice C5VRX_DAC_RESOLUTION
+        prompt "Physical resistor DAC resolution"
+        default C5VRX_DAC_6BIT
+        config C5VRX_DAC_6BIT
+            bool "6 bits (existing resistor network)"
+        config C5VRX_DAC_8BIT
+            bool "8 bits (experimental Phase8, requires a new resistor network)"
+            depends on C5VRX_CUSTOM_BOARD && C5VRX_PHASE8_HR_LIVE_TEST
+    endchoice
+
+    config C5VRX_DAC_BITS
+        int
+        default 8 if C5VRX_DAC_8BIT
+        default 6
+
+    config C5VRX_IQ_D0_GPIO
+        int "IQ bit 0 GPIO" if C5VRX_CUSTOM_BOARD
+        range -1 28
+        default 1
+    config C5VRX_IQ_D1_GPIO
+        int "IQ bit 1 GPIO" if C5VRX_CUSTOM_BOARD
+        range -1 28
+        default 0
+    config C5VRX_IQ_D2_GPIO
+        int "IQ bit 2 GPIO" if C5VRX_CUSTOM_BOARD
+        range -1 28
+        default 25
+    config C5VRX_IQ_D3_GPIO
+        int "IQ bit 3 GPIO" if C5VRX_CUSTOM_BOARD
+        range -1 28
+        default 7
+    config C5VRX_IQ_D4_GPIO
+        int "IQ bit 4 GPIO" if C5VRX_CUSTOM_BOARD
+        range -1 28
+        default 10
+    config C5VRX_IQ_D5_GPIO
+        int "IQ bit 5 GPIO" if C5VRX_CUSTOM_BOARD
+        range -1 28
+        default 5
+    config C5VRX_IQ_D6_GPIO
+        int "IQ bit 6 GPIO" if C5VRX_CUSTOM_BOARD
+        range -1 28
+        default 3
+    config C5VRX_IQ_D7_GPIO
+        int "IQ bit 7 GPIO" if C5VRX_CUSTOM_BOARD
+        range -1 28
+        default 4
+    config C5VRX_DAC_D0_GPIO
+        int "DAC bit 0 GPIO" if C5VRX_CUSTOM_BOARD
+        range -1 28
+        default 23
+    config C5VRX_DAC_D1_GPIO
+        int "DAC bit 1 GPIO" if C5VRX_CUSTOM_BOARD
+        range -1 28
+        default 24
+    config C5VRX_DAC_D2_GPIO
+        int "DAC bit 2 GPIO" if C5VRX_CUSTOM_BOARD
+        range -1 28
+        default 11
+    config C5VRX_DAC_D3_GPIO
+        int "DAC bit 3 GPIO" if C5VRX_CUSTOM_BOARD
+        range -1 28
+        default 12
+    config C5VRX_DAC_D4_GPIO
+        int "DAC bit 4 GPIO" if C5VRX_CUSTOM_BOARD
+        range -1 28
+        default 8
+    config C5VRX_DAC_D5_GPIO
+        int "DAC bit 5 GPIO" if C5VRX_CUSTOM_BOARD
+        range -1 28
+        default 9
+    config C5VRX_DAC_D6_GPIO
+        int "DAC bit 6 GPIO" if C5VRX_CUSTOM_BOARD && C5VRX_DAC_8BIT
+        range -1 28
+        default -1
+    config C5VRX_DAC_D7_GPIO
+        int "DAC bit 7 GPIO" if C5VRX_CUSTOM_BOARD && C5VRX_DAC_8BIT
+        range -1 28
+        default -1
+    config C5VRX_BUTTON_GPIO
+        int "Active-low menu button GPIO (-1 to disable)" if C5VRX_CUSTOM_BOARD
+        range -1 28
+        default 28
+endmenu
+
+menu "C5VRX diagnostic probes"
+    config C5VRX_PHY_PHASE_TAP_PROBE
+        bool "Capture bounded MODEM_DIAG lane traces at boot, then start video"
+        default n
+        help
+            Capture all 32 MODEM_DIAG lanes under four previously tested
+            selector states on the production IQ GPIOs before video starts.
+            Restore all selector registers and the normal IQ routing after
+            capture. CPU snapshots are asynchronous and cannot alone prove a
+            40 MS/s phase tap. This option is for an experimental PR build.
+
+    config C5VRX_BS_RELATIVE_WORKER_PROBE
+        bool "Run Counter-A relative-mux loopback oracle before starting video"
+        default n
+        help
+            Run a finite two-bundle BitScrambler loopback test at boot and
+            print BS_REL_WORKER PASS/FAIL, then start the normal RF/video path.
+
+    config C5VRX_BS_RELATIVE_MIDDLE_PROBE
+        bool "Run alternating middle/endpoint relative-mux loopback probe before starting video"
+        default y
+        help
+            Run a finite two-bundle BitScrambler loopback test at boot to prove
+            alternating middle-sample and endpoint-sample Phase5 extraction,
+            then start the normal RF/video path.
+
+    config C5VRX_BS_ADDCTIA_PROBE
+        bool "Run Counter-A ADDCTIA hardware subtraction loopback probe before starting video"
+        default y
+        help
+            Run a finite BitScrambler loopback test at boot to prove
+            single-cycle Counter-A hardware subtraction (ADDCTIAL + LDCTIAL)
+            and compact 32-entry DAC lookup for Phase5-360, then start the
+            normal RF/video path.
+endmenu
+
+menu "C5VRX experimental video demodulators"
+    config C5VRX_PHASE8_HR_LIVE_TEST
+        bool "Run full-range adjacent Phase8 on live 6BIT@40 video"
+        default y
+        help
+            Experimental full signed Phase8 delta mapping plus Direct Gain V3.
+            Maps -128..+127 phase bins across the 64 DAC levels and forces
+            6BIT@40 output. A phase step crossing +/-180 degrees still aliases.
+
+    config C5VRX_PHASE5_360_LIVE
+        bool "Use Phase5-360 research program (Golden DAC output only)"
+        default y
+        help
+            Load the two-bundle middle-sample routing experiment. Both worker
+            branches currently output the same Golden DAC bytes. No adjacent
+            winding correction is active in the live firmware.
+
+    config C5VRX_RELATIVE_GOLDEN_LIVE
+        bool "Use relative-mux Golden in the live 6-bit video path"
+        default n
+        help
+            Replace only the 6-bit Golden BitScrambler program with the
+            two-bundle Counter-A relative-mux oracle. Intended for live
+            equivalence testing; no winding correction is performed.
+endmenu
+
+config C5VRX_DIRECT_GAIN_V3_EXPERIMENT
+    bool "Run predictive Direct Gain V3 on the default automatic RX profile"
+    default y
+    help
+        Experimental issue #107 build. The existing live demodulator stays
+        selected, while V3 alone owns automatic RF gain on the default
+        profile. Hardware gain and video validation is required before merge.

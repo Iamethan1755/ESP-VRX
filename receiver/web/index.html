@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C5VRX | ESP32-C5 Analog FPV Receiver &amp; Web Flasher</title>
+<meta name="description" content="C5VRX is an open-source 5.8 GHz analog FPV receiver for the Seeed XIAO ESP32-C5. Flash firmware in your browser and control the receiver over USB.">
+<meta name="theme-color" content="#111315">
+<link rel="canonical" href="https://c5vrx.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="C5VRX">
+<meta property="og:title" content="C5VRX | ESP32-C5 Analog FPV Receiver &amp; Web Flasher">
+<meta property="og:description" content="C5VRX is an open-source 5.8 GHz analog FPV receiver for the Seeed XIAO ESP32-C5. Flash firmware in your browser and control the receiver over USB.">
+<meta property="og:url" content="https://c5vrx.com/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="C5VRX | ESP32-C5 Analog FPV Receiver &amp; Web Flasher">
+<meta name="twitter:description" content="C5VRX is an open-source 5.8 GHz analog FPV receiver for the Seeed XIAO ESP32-C5. Flash firmware in your browser and control the receiver over USB.">
+<link rel="icon" type="image/png" sizes="192x192" href="assets/favicon.png?v=20261011-white">
+<link rel="apple-touch-icon" href="assets/favicon.png?v=20261011-white">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "C5VRX",
+  "url": "https://c5vrx.com/",
+  "description": "C5VRX is an open-source 5.8 GHz analog FPV receiver for the Seeed XIAO ESP32-C5. Flash firmware in your browser and control the receiver over USB.",
+  "inLanguage": "en"
+}
+</script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to tools</a>
+<header>
+  <div class="header-inner">
+    <a href="https://twotoz.github.io/C5VRX/" aria-label="C5VRX home"><img class="logo" src="assets/c5vrx-logo.jpg" alt="C5VRX" width="145" height="46"></a>
+    <nav class="links" aria-label="Project links">
+      <a href="https://discord.gg/3YNgJRHmzD" target="_blank" rel="noopener noreferrer">Discord</a>
+      <a href="https://github.com/Twotoz/C5VRX" target="_blank" rel="noopener noreferrer">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="workspace">
+  <aside class="docs-sidebar" aria-label="Documentation">
+    <details id="docsNav" open>
+      <summary>Documentation</summary>
+      <nav class="docs-links" aria-label="Documentation links">
+        <a href="https://github.com/Twotoz/C5VRX/blob/main/README.md#first-boot" target="_blank" rel="noopener noreferrer">Getting started</a>
+        <a href="https://github.com/Twotoz/C5VRX/blob/main/README.md#hardware" target="_blank" rel="noopener noreferrer">Hardware &amp; wiring</a>
+        <a href="https://github.com/Twotoz/C5VRX/blob/main/README.md#flashing" target="_blank" rel="noopener noreferrer">Build &amp; flash</a>
+        <a href="https://github.com/Twotoz/C5VRX/blob/main/README.md#serial-console-usb-115200" target="_blank" rel="noopener noreferrer">Receiver controls</a>
+        <a href="https://github.com/Twotoz/C5VRX/blob/main/docs/FINDINGS.md" target="_blank" rel="noopener noreferrer">Receiver findings</a>
+        <a href="https://github.com/Twotoz/C5VRX/blob/main/docs/FIELD_TEST.md" target="_blank" rel="noopener noreferrer">Range &amp; field tests</a>
+        <a href="https://github.com/Twotoz/C5VRX/tree/main/docs" target="_blank" rel="noopener noreferrer">All documentation</a>
+      </nav>
+    </details>
+  </aside>
+
+  <div class="content-column">
+    <main id="main">
+      <h1>Web flasher</h1>
+      <div id="unsupportedWarning" class="warning" role="status" hidden>USB needs a desktop browser with Web Serial, such as Chrome or Edge. You can still browse the firmware builds here.</div>
+
+      <nav class="view-tabs" aria-label="Device tools">
+        <button type="button" class="view-button active" id="firmwareTab" aria-pressed="true" aria-controls="firmwareView">Firmware</button>
+        <button type="button" class="view-button" id="terminalTab" aria-pressed="false" aria-controls="terminalView">Terminal</button>
+      </nav>
+
+      <!-- Firmware -->
+      <section id="firmwareView" aria-label="Firmware">
+        <div class="panel">
+          <div class="sources" role="group" aria-label="Firmware source">
+            <button type="button" id="tabAlpha" aria-pressed="true" class="source-button active">C5VRX-5</button>
+            <button type="button" id="tabLocal" aria-pressed="false" class="source-button">Local File</button>
+            <button type="button" id="tabGithub" aria-pressed="false" class="source-button">Legacy builds</button>
+          </div>
+
+          <!-- C5VRX-5 builds -->
+          <div id="paneAlpha" class="tab-pane active">
+            <div id="alphaBuildWarning" class="warning-box">
+              <strong>C5VRX-5 firmware</strong>
+              <span>The untrained U85Q demodulator, fixed ultrafine IQ, Direct Gain V5 and an analog filter that calibrates itself on the first boot (VTX off is best). Choose the latest build or an unmerged PR build. Use Full firmware when switching from another generation.</span>
+            </div>
+            <div class="field">
+              <label for="selectAlphaBuild">Build</label>
+              <div class="select-row">
+                <select id="selectAlphaBuild" class="form-control"><option value="">Loading C5VRX-5 builds…</option></select>
+              </div>
+            </div>
+            <details class="release-metadata">
+              <summary>Build details</summary>
+              <div id="alphaBuildDetails" class="info-box" hidden>
+                <div class="info-row"><span class="info-label">Build</span><span class="info-value" id="infoAlphaBuildName">-</span></div>
+                <div class="info-row"><span class="info-label">Published</span><span class="info-value" id="infoAlphaBuildDate">-</span></div>
+                <div class="info-row"><span class="info-label">Tag</span><span class="info-value" id="infoAlphaBuildTag">-</span></div>
+                <div class="info-row"><span class="info-label">Assets</span><span class="info-value" id="infoAlphaBuildAssets">-</span></div>
+              </div>
+            </details>
+            <div class="field">
+              <label for="selectAlphaPackageType">Package</label>
+              <select id="selectAlphaPackageType" class="form-control">
+                <option value="merged">Full firmware</option>
+                <option value="app_only">App only</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Local file -->
+          <div id="paneLocal" class="tab-pane">
+            <div class="dropzone" id="dropzone">
+              <p>Drag &amp; drop a firmware binary (<strong>.bin</strong>) here</p>
+              <span class="text-muted">or</span>
+              <button type="button" id="btnBrowseFile" class="action">Browse file</button>
+              <input type="file" id="inputLocalFile" accept=".bin" class="file-input" tabindex="-1">
+            </div>
+            <div id="localFileDetails" class="info-box" hidden>
+              <div class="info-row"><span class="info-label">File</span><span class="info-value" id="localFileName">-</span></div>
+              <div class="info-row"><span class="info-label">Size</span><span class="info-value" id="localFileSize">-</span></div>
+              <div class="field offset-field">
+                <label for="inputFlashOffset">Flash offset</label>
+                <input type="text" id="inputFlashOffset" class="form-control" value="0x0" placeholder="0x0 or 0x10000" autocomplete="off" spellcheck="false">
+                <small class="text-muted">Use <code>0x0</code> for a merged image, <code>0x10000</code> for an application binary.</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- Legacy builds (archived C5VRX-3 releases) -->
+          <div id="paneGithub" class="tab-pane">
+            <div class="warning-box">
+              <strong>Legacy builds</strong>
+              <span>Archived C5VRX-3 releases. They are no longer developed or rebuilt; C5VRX-5 replaces them. Use Full firmware when switching generations.</span>
+            </div>
+            <div class="field">
+              <label for="selectRelease">Version</label>
+              <div class="select-row">
+                <select id="selectRelease" class="form-control"><option value="">Loading releases…</option></select>
+              </div>
+            </div>
+            <details class="release-metadata">
+              <summary>Release details</summary>
+              <div id="releaseDetails" class="info-box" hidden>
+                <div class="info-row"><span class="info-label">Release</span><span class="info-value" id="infoReleaseName">-</span></div>
+                <div class="info-row"><span class="info-label">Published</span><span class="info-value" id="infoReleaseDate">-</span></div>
+                <div class="info-row"><span class="info-label">Tag</span><span class="info-value" id="infoReleaseTag">-</span></div>
+                <div class="info-row"><span class="info-label">Assets</span><span class="info-value" id="infoReleaseAssets">-</span></div>
+              </div>
+            </details>
+            <div class="field">
+              <label for="selectPackageType">Package</label>
+              <select id="selectPackageType" class="form-control">
+                <option value="merged">Full firmware</option>
+                <option value="app_only">App only</option>
+              </select>
+            </div>
+          </div>
+
+          <details class="advanced-box">
+            <summary>Advanced options</summary>
+            <div class="field">
+              <label for="selectBaud">Flash speed</label>
+              <select id="selectBaud" class="form-control">
+                <option value="460800" selected>460,800 (fast and reliable)</option>
+                <option value="115200">115,200 (safe fallback)</option>
+                <option value="921600">921,600 (maximum)</option>
+              </select>
+            </div>
+            <label class="check"><input type="checkbox" id="chkEraseAll"><span>Erase flash before installing (also clears stored calibration)</span></label>
+          </details>
+
+          <div class="flash-actions">
+            <button type="button" id="btnConnect" class="action"><span id="btnConnectText">Connect device</span></button>
+            <button type="button" id="btnFlash" class="action primary" disabled>Flash firmware</button>
+          </div>
+          <p id="statStatus" class="device-status" role="status">No device connected</p>
+          <div id="progressContainer" class="progress-container" aria-live="polite" hidden>
+            <div class="progress-labels"><span id="progressStatusText">Preparing…</span><span id="progressPercentText">0%</span></div>
+            <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+          </div>
+          <details id="flashLog" class="flash-log">
+            <summary>Flash log</summary>
+            <button type="button" id="btnClearConsole" class="action">Clear</button>
+            <pre id="consoleOutput" class="terminal-output" tabindex="0" aria-label="Flash log"></pre>
+          </details>
+        </div>
+        <details class="help">
+          <summary>Connection help</summary>
+          <p>Use a USB data cable to connect your XIAO ESP32-C5 and choose its serial port when connecting.</p>
+          <p>A running C5VRX-5 receiver enters download mode by itself. If connecting still fails, hold BOOT, tap RESET, then release BOOT.</p>
+          <p>Close the Terminal (or any other serial program) first: only one program can use the port.</p>
+        </details>
+      </section>
+
+      <!-- Terminal -->
+      <section id="terminalView" aria-label="Receiver terminal" hidden>
+        <div class="panel terminal-panel">
+          <div class="terminal-toolbar">
+            <div class="terminal-controls">
+              <label for="terminalBaud">Baud</label>
+              <select id="terminalBaud"><option>115200</option><option>460800</option><option>921600</option></select>
+              <button type="button" class="action primary" id="btnTerminalConnect">Connect receiver</button>
+            </div>
+            <p id="terminalStatus" class="connection-state" role="status" data-state="disconnected">No device connected</p>
+          </div>
+          <p id="terminalFirmware" class="terminal-identity" role="status">Connect a C5VRX-5 receiver over USB to use its menu.</p>
+          <p id="receiverNotice" class="receiver-notice" role="status" hidden></p>
+
+          <div class="receiver-screen">
+            <div class="receiver-header">
+              <strong>C5VRX-5</strong>
+              <span data-value="channel">—</span>
+              <span data-value="freq"></span>
+              <span class="signal-bars" data-bars="0" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+              <span data-value="lock"></span>
+              <span data-value="standard"></span>
+            </div>
+            <div class="receiver-menu">
+              <div class="receiver-nav" role="tablist" aria-label="Receiver menu" aria-orientation="vertical">
+                <button type="button" role="tab" id="menu-band" aria-controls="pane-band" aria-selected="true" tabindex="0" data-menu="band">BAND</button>
+                <button type="button" role="tab" id="menu-channel" aria-controls="pane-channel" aria-selected="false" tabindex="-1" data-menu="channel">CHANNEL</button>
+                <button type="button" role="tab" id="menu-scan" aria-controls="pane-scan" aria-selected="false" tabindex="-1" data-menu="scan">SCAN</button>
+                <button type="button" role="tab" id="menu-video" aria-controls="pane-video" aria-selected="false" tabindex="-1" data-menu="video">VIDEO</button>
+                <button type="button" role="tab" id="menu-calibrate" aria-controls="pane-calibrate" aria-selected="false" tabindex="-1" data-menu="calibrate">CALIBRATE</button>
+                <button type="button" role="tab" id="menu-output" aria-controls="pane-output" aria-selected="false" tabindex="-1" data-menu="output">OUTPUT</button>
+                <button type="button" role="tab" id="menu-exit" aria-controls="pane-exit" aria-selected="false" tabindex="-1" data-menu="exit">EXIT</button>
+              </div>
+              <div class="receiver-content">
+                <div role="tabpanel" id="pane-band" aria-labelledby="menu-band">
+                  <h2>BAND</h2>
+                  <dl class="readouts"><div><dt>Active band</dt><dd data-value="band">—</dd></div><div><dt>Channel</dt><dd data-value="channel">—</dd></div></dl>
+                  <p class="hint">Steps through R, A, B, E, F and L. Live video is interrupted while it retunes.</p>
+                  <button type="button" class="command-button" data-command="b" data-hint="Retune to the next band? Live video will be interrupted." disabled>Next band <kbd>b</kbd></button>
+                </div>
+                <div role="tabpanel" id="pane-channel" aria-labelledby="menu-channel" hidden>
+                  <h2>CHANNEL</h2>
+                  <dl class="readouts"><div><dt>Active</dt><dd data-value="channel">—</dd></div><div><dt>Center</dt><dd data-value="freq">—</dd></div></dl>
+                  <div class="signal-row"><span>Signal</span><div class="meter"><div class="meter-fill" data-meter="signal"></div></div><span data-value="signal">—</span></div>
+                  <p class="hint">Steps through the eight channels of the active band.</p>
+                  <button type="button" class="command-button" data-command="c" data-hint="Retune to the next channel? Live video will be interrupted." disabled>Next channel <kbd>c</kbd></button>
+                </div>
+                <div role="tabpanel" id="pane-scan" aria-labelledby="menu-scan" hidden>
+                  <h2>SCAN</h2>
+                  <dl class="readouts"><div><dt>Status</dt><dd data-value="scan">—</dd></div></dl>
+                  <p class="hint">Checks all 48 channels and keeps the strongest analog video centred on a channel. Live video stops while scanning.</p>
+                  <button type="button" class="command-button" data-command="s" data-hint="Scan for the strongest video? Live video will stop while scanning." disabled>Scan 48 channels <kbd>s</kbd></button>
+                </div>
+                <div role="tabpanel" id="pane-video" aria-labelledby="menu-video" hidden>
+                  <h2>VIDEO STANDARD</h2>
+                  <dl class="readouts"><div><dt>Standard</dt><dd data-value="standard">—</dd></div><div><dt>Detected</dt><dd data-value="detected">—</dd></div></dl>
+                  <p class="hint">Cycles AUTO → NTSC → PAL for the menu picture. AUTO follows the camera.</p>
+                  <button type="button" class="command-button" data-command="v" data-hint="Cycle AUTO / NTSC / PAL? The receiver saves the selected video standard." disabled>Change video standard <kbd>v</kbd></button>
+                </div>
+                <div role="tabpanel" id="pane-calibrate" aria-labelledby="menu-calibrate" hidden>
+                  <h2>CALIBRATE</h2>
+                  <dl class="readouts"><div><dt>Calibration</dt><dd data-value="calibrate">—</dd></div></dl>
+                  <p class="hint">On the ground only. Video stops for up to two minutes; switch the VTX off for the best result.</p>
+                  <button type="button" class="command-button" data-command="F" data-hint="Calibrate on the ground? Live video stops for up to two minutes. VTX off is best." disabled>Calibrate receiver <kbd>F</kbd></button>
+                </div>
+                <div role="tabpanel" id="pane-output" aria-labelledby="menu-output" hidden>
+                  <h2>OUTPUT LEVEL</h2>
+                  <dl class="readouts"><div><dt>Level</dt><dd data-value="output">—</dd></div></dl>
+                  <p class="hint">Cycles 1.0 / 1.5 / 2.0 / 2.5x; every boot starts at 1.0x. Higher levels can clip a wide VTX: check sync and white into 75 ohm.</p>
+                  <button type="button" class="command-button" data-command="g" data-hint="Cycle OUTPUT 1.0 / 1.5 / 2.0 / 2.5x? Higher levels may clip video. Boot resets to 1.0x." disabled>Next output level <kbd>g</kbd></button>
+                </div>
+                <div role="tabpanel" id="pane-exit" aria-labelledby="menu-exit" hidden>
+                  <h2>BACK TO LIVE VIDEO</h2>
+                  <dl class="readouts"><div><dt>Screen menu</dt><dd data-value="menu">—</dd></div></dl>
+                  <p class="hint">Closes the on-screen menu in the goggles. Does nothing when it is already closed.</p>
+                  <button type="button" class="command-button" data-command="e" disabled>Close screen menu <kbd>e</kbd></button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="control-groups">
+            <div class="command-group">
+              <h2>On-screen menu (goggles)</h2>
+              <div class="command-buttons">
+                <button type="button" class="command-button" data-command="o" data-hint="Toggle the on-screen menu? Opening it replaces live video." disabled>Open / close <kbd>o</kbd></button>
+                <button type="button" class="command-button" data-command="n" disabled>Next item <kbd>n</kbd></button>
+                <button type="button" class="command-button" data-command="x" data-hint="Activate the selected on-screen item? It may retune, change video settings or start calibration." disabled>Select item <kbd>x</kbd></button>
+              </div>
+            </div>
+            <details class="shortcut-details">
+              <summary>Diagnostics</summary>
+              <div class="command-buttons">
+                <button type="button" class="command-button" data-command="T" disabled>Full status report <kbd>T</kbd></button>
+                <button type="button" class="command-button" data-command="D" disabled>Range / health report <kbd>D</kbd></button>
+                <button type="button" class="command-button" data-command="R" disabled>Field logging on/off <kbd>R</kbd></button>
+                <button type="button" class="command-button" data-command="I" disabled>Capture raw IQ <kbd>I</kbd></button>
+                <button type="button" class="command-button" data-command="M" disabled>Export gain map <kbd>M</kbd></button>
+                <button type="button" class="command-button" data-command="h" disabled>Firmware help <kbd>h</kbd></button>
+              </div>
+            </details>
+            <details class="shortcut-details">
+              <summary>Advanced / bench</summary>
+              <dl class="readouts compact">
+                <div><dt>Automatic rescue</dt><dd data-value="kpMode">—</dd></div>
+                <div><dt>Live VTX matching</dt><dd data-value="liveProfile">—</dd></div>
+                <div><dt>Profile</dt><dd data-value="profile">—</dd></div>
+              </dl>
+              <p class="hint">Test on the ground. Manual tracker changes save automatic rescue OFF. Live changes share a five-second firmware cooldown.</p>
+              <div class="command-buttons">
+                <button type="button" class="command-button" data-command="K" data-hint="Cycle OFF / AUTO kp / AUTO kp+LP? The setting is saved; a change can briefly interrupt video." disabled>Cycle automatic rescue <kbd>K</kbd></button>
+                <button type="button" class="command-button" data-command="A" data-hint="Toggle automatic live VTX profile switching? This setting is saved; profile changes can briefly interrupt video." disabled>Toggle live VTX matching <kbd>A</kbd></button>
+                <button type="button" class="command-button" data-command="k" data-hint="Step the tracker calmer? This saves automatic rescue OFF, including after reboot." disabled>Tracker calmer <kbd>k</kbd></button>
+                <button type="button" class="command-button" data-command="j" data-hint="Step the tracker faster? This saves automatic rescue OFF, including after reboot." disabled>Tracker faster <kbd>j</kbd></button>
+                <button type="button" class="command-button" data-command="P" data-hint="Toggle U85Q / U85Q-LP? This saves automatic rescue OFF, including after reboot." disabled>Toggle low-pass <kbd>P</kbd></button>
+                <button type="button" class="command-button" data-command="L" data-hint="Run the bench-only IQ lane comparison? Live video stops for about three seconds." disabled>Compare IQ lanes <kbd>L</kbd></button>
+                <button type="button" class="command-button" data-command="`" data-hint="Reboot into USB download mode for flashing? Video stops and the terminal disconnects." disabled>USB download mode <kbd>`</kbd></button>
+              </div>
+            </details>
+          </div>
+
+          <div class="terminal-log">
+            <div class="terminal-toolbar">
+              <label class="check"><input id="autoScroll" type="checkbox" checked>Auto-scroll</label>
+              <div class="terminal-controls"><button type="button" class="action" id="downloadLog">Download log</button><button type="button" class="action" id="clear">Clear</button></div>
+            </div>
+            <pre class="terminal-output" id="output" tabindex="0" aria-label="Serial output">Connect a receiver to view serial output.</pre>
+            <form class="command-row" id="commandForm">
+              <label for="commandInput">Key</label>
+              <input id="commandInput" maxlength="1" placeholder="One key, e.g. T" disabled autocomplete="off" autocapitalize="off" spellcheck="false">
+              <button type="submit" id="btnSendCommand" class="action" disabled>Send</button>
+            </form>
+            <p class="hint log-hint">Keys are case-sensitive and send one byte without Enter; <kbd>h</kbd> lists them. The log keeps the latest 120,000 characters.</p>
+          </div>
+        </div>
+        <p class="hint">Connecting the terminal releases the flasher and the other way round; they never share the port. The menu updates by itself while the receiver is connected.</p>
+      </section>
+
+      <aside class="hardware-purchase" aria-label="Get the hardware">
+        <div class="hardware-photo"><img src="assets/xiao-esp32c5.jpg" alt="Seeed Studio XIAO ESP32-C5 board" width="320" height="240" loading="lazy"></div>
+        <div class="hardware-copy">
+          <p class="hardware-title">Buy your XIAO ESP32-C5 here</p>
+          <a class="amazon-button" href="https://link.amazon/B012HPjJm" target="_blank" rel="sponsored noopener noreferrer" aria-describedby="affiliateDisclosure">Buy on Amazon</a>
+          <p class="affiliate-note" id="affiliateDisclosure">Affiliate link. As an Amazon Associate, I earn from qualifying purchases. All affiliate earnings go back into C5VRX development.</p>
+        </div>
+      </aside>
+    </main>
+    <footer>C5VRX by Twotoz and the C5VRX contributors · GPL-3.0</footer>
+  </div>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

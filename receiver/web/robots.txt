@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://c5vrx.com/sitemap.xml

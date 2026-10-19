@@ -1,0 +1,189 @@
+name: C5VRX-5 Build
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'main/**'
+      - 'test/**'
+      - 'research/**'
+      - 'tools/**'
+      - 'CMakeLists.txt'
+      - 'partitions.csv'
+      - 'sdkconfig.defaults'
+      - '!**/*.md'
+      - '.github/workflows/c5vrx5.yml'
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    paths:
+      - 'main/**'
+      - 'test/**'
+      - 'research/**'
+      - 'tools/**'
+      - 'CMakeLists.txt'
+      - 'partitions.csv'
+      - 'sdkconfig.defaults'
+      - '!**/*.md'
+      - '.github/workflows/c5vrx5.yml'
+permissions:
+  contents: read
+concurrency:
+  group: c5vrx5-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    container: espressif/idf:v6.0.2
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Resolve version
+        id: version
+        shell: bash
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Main builds are 5.0.<run number> (immutable tag c5vrx5-v5.0.N);
+          # PR builds share one mutable channel per PR.
+          if [[ -n "$PR_NUMBER" ]]; then
+            echo "version=5.0.0-pr.${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "tag=c5vrx5-pr-${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=5.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "tag=c5vrx5-v5.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Host tests (quiet test, VTX deviation profile, dropout classifier, AFC, gain fade)
+        shell: bash
+        working-directory: test
+        run: |
+          set -euo pipefail
+          for t in test_quiet test_profile test_diag test_afc test_kp_ladder test_kp_lut_io test_kp_switch_guard test_transport_recovery test_calibration_noise test_sphase test_dco_slots; do
+            cc -O2 -std=c11 -Wall -Wextra -Werror -I../main "$t.c" -lm -o "/tmp/$t" && "/tmp/$t" | tail -1
+          done
+          cc -O2 -std=c11 -Wall -Wextra -Werror -DEXPECT_FADE_HOLD -I../main test_gain_fade.c \
+            ../main/gain.c ../main/arc_phy.c -lm -o /tmp/test_gain_fade && /tmp/test_gain_fade | tail -1
+          cc -O2 -std=c11 -Wall -Wextra -Werror -I../main test_gain_preset.c \
+            ../main/gain.c ../main/arc_phy.c -lm -o /tmp/test_gain_preset && /tmp/test_gain_preset | tail -1
+      - name: Diagnostic log semantics
+        run: python3 test/test_field_diag_compare.py
+      - name: Analytic IQ lane reference
+        shell: bash
+        run: |
+          python3 -m venv /tmp/iqf-test-env
+          /tmp/iqf-test-env/bin/pip install numpy scipy numba
+          OPENBLAS_NUM_THREADS=1 /tmp/iqf-test-env/bin/python test/test_iq_lane_fusion.py
+          python3 "$IDF_PATH/tools/bsasm.py" research/iq_lane_mixed468.bsasm /tmp/iq_lane_mixed468.bsbin \
+            -c "$IDF_PATH/components/esp_driver_bitscrambler/bsasm_targets/esp32c5.json"
+      - name: U85Q-LP research program (assembles; emulator matches U85Q and the LP model)
+        shell: bash
+        run: |
+          python3 "$IDF_PATH/tools/bsasm.py" main/u85q_lp.bsasm /tmp/u85q_lp.bsbin \
+            -c "$IDF_PATH/components/esp_driver_bitscrambler/bsasm_targets/esp32c5.json"
+          /tmp/iqf-test-env/bin/python research/u85q_lp.py check
+      - name: Kp ladder tables (generator reproduces the U85Q LUTs; kp_tables.h current)
+        run: /tmp/iqf-test-env/bin/python research/kp_morph.py check
+      - name: Kp ladder at the range edge (control-loop window gate and switch confirmation)
+        run: /tmp/iqf-test-env/bin/python research/ladder_gate.py check research/data/ladder_gate_rates.json
+      - name: OUTPUT research invariants (DAC-only changes and bounded policy)
+        run: /tmp/iqf-test-env/bin/python research/output_level.py --check
+      - name: Build C5VRX-5
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          idf.py -DC5VRX5_VERSION="${{ steps.version.outputs.version }}" build
+      - name: Package firmware for web flashing
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          mkdir -p release
+          cp build/c5vrx5.bin build/bootloader/bootloader.bin \
+             build/partition_table/partition-table.bin build/flasher_args.json release/
+          esptool.py --chip esp32c5 merge_bin -o release/c5vrx5_merged.bin \
+            --flash_mode dio --flash_size 8MB --flash_freq 80m \
+            0x2000 release/bootloader.bin 0x8000 release/partition-table.bin 0x10000 release/c5vrx5.bin
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          printf '%s\n' '${{ github.event.pull_request.head.sha || github.sha }}' > release/COMMIT
+          python3 tools/firmware_input_hash.py 5 > release/FIRMWARE_INPUT_SHA
+          printf '%s\n' '${{ steps.version.outputs.version }}' > release/VERSION
+          cd release && sha256sum * > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: c5vrx5-${{ github.event.pull_request.head.sha || github.sha }}
+          if-no-files-found: error
+          path: release/
+  publish:
+    needs: build
+    # Fork builds never get write-capable publication.
+    if: >-
+      (github.event_name != 'pull_request' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request' && github.event.action != 'closed' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: c5vrx5-${{ github.event.pull_request.head.sha || github.sha }}
+          path: release/
+      - name: Publish C5VRX-5 build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          VERSION: ${{ needs.build.outputs.version }}
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          # Unchanged firmware inputs keep the existing build.
+          if [[ -n "$PR_NUMBER" ]]; then previous="$TAG"; else
+            previous="$(gh release list --repo "$repo" --limit 100 --json tagName,isDraft \
+              | jq -r '.[] | select(.isDraft == false) | .tagName' \
+              | grep -E '^c5vrx5-v5\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
+          fi
+          if [[ -n "$previous" ]] && gh release view "$previous" --repo "$repo" >/dev/null 2>&1; then
+            dir="$(mktemp -d)"
+            if gh release download "$previous" --repo "$repo" --pattern FIRMWARE_INPUT_SHA --dir "$dir" &&
+               cmp -s "$dir/FIRMWARE_INPUT_SHA" release/FIRMWARE_INPUT_SHA; then
+              echo "Firmware inputs unchanged; keeping $previous."
+              # C5VRX-5 is the main firmware: its newest versioned build is
+              # the repository's Latest release (never a PR prerelease).
+              if [[ -z "$PR_NUMBER" ]]; then gh release edit "$previous" --repo "$repo" --latest; fi
+              exit 0
+            fi
+            # Only PR channels are replaced; versioned main builds are immutable.
+            if [[ -n "$PR_NUMBER" ]]; then gh release delete "$TAG" --repo "$repo" --yes --cleanup-tag; fi
+          fi
+          if [[ -n "$PR_NUMBER" ]]; then
+            title="C5VRX-5 — PR #${PR_NUMBER} / unmerged"
+            flags=(--prerelease --latest=false)
+          else
+            title="C5VRX-5 v${VERSION}"
+            flags=(--latest)   # main builds are the repository's Latest release
+          fi
+          gh release create "$TAG" release/* --repo "$repo" --target "$BUILD_SHA" --title "$title" \
+            "${flags[@]}" \
+            --notes "C5VRX-5 ${VERSION} at ${BUILD_SHA}. Use Full firmware when switching from another generation."
+  cleanup:
+    if: >-
+      github.event_name == 'pull_request' && github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Remove the closed PR channel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="c5vrx5-pr-${{ github.event.pull_request.number }}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          fi
