@@ -73,7 +73,8 @@ static void help(void)
            "  v video standard AUTO/NTSC/PAL, e close menu (web menu direct controls),\n"
            "  F calibrate (startup steps again; video stops), L bench IQ lane comparison (video stops ~3 s),\n"
            "  ` reboot to USB download (flashing)\n"
-           "  Wi-Fi bridge: o c b s n x v e also arrive as \"<k>\" frames on GPIO2 (UART, 115200)\n");
+           "  Wi-Fi bridge: o c b s n x v e also arrive as \"<k>\" frames on D4/GPIO23 (UART, 115200),\n"
+           "  and \"<#NN>\" tunes straight to channel NN (0..47 = band R A B E F L x 8)\n");
 }
 
 /* The USB reader runs above every receiver task: the download key and the
@@ -137,31 +138,47 @@ static void console_task(void *arg)
 }
 
 /* c5vrx-wifi bridge (branch wifi-bridge): menu keys from the ESP32-S3
- * Wi-Fi bridge on GPIO2 (the MTMS pad), UART 115200 8N1, receive only.
+ * Wi-Fi bridge, UART 115200 8N1, receive only: on D4 (GPIO23, the DAC's bit
+ * 0, see BRIDGE_KEYS_ON_D4 in receiver.h) or else on GPIO2 (the MTMS pad).
  * GPIO2 is listed as a strapping pin but selects nothing at boot (ESP32-C5
  * datasheet v1.5 ch. 3: boot mode is GPIO26..28, JTAG source GPIO7, SDIO
  * edges GPIO25/MTDI), so the bridge's idle-high line is harmless at reset.
  * Each key comes framed as "<k>" and only the on-screen menu, channel,
  * band and scan keys are accepted: a floating or noisy wire cannot change
- * the channel and can never reach the download or calibration keys. */
+ * the channel and can never reach the download or calibration keys.
+ * "<#NN>" (two digits, 00..47) tunes straight to channel NN, index = band *
+ * 8 + channel in rf.h order (R A B E F L), so the phone can pick "Race 1". */
 #define BRIDGE_UART    UART_NUM_1
-#define BRIDGE_RX_GPIO 2
+#define BRIDGE_RX_GPIO (BRIDGE_KEYS_ON_D4 ? 23 : 2)   /* D4, or the GPIO2 pad on the back */
 #define BRIDGE_KEYS    "ocbsnxve"
 
 static void bridge_key_task(void *arg)
 {
     (void)arg;
-    int state = 0;   /* 0: want '<', 1: want key, 2: want '>' */
+    /* 0: want '<'; 1: key or '#'; 2: want '>' after a key;
+     * 3, 4: channel digits; 5: want '>' after them */
+    int state = 0, number = 0;
     uint8_t key = 0;
     for (;;) {
         uint8_t c;
         if (uart_read_bytes(BRIDGE_UART, &c, 1, portMAX_DELAY) != 1) continue;
-        if (state == 1) {
+        if (state == 1 && c == '#') {
+            number = 0;
+            state = 3;
+        } else if (state == 1) {
             key = c;
             state = 2;
         } else if (state == 2 && c == '>' && key && strchr(BRIDGE_KEYS, key)) {
             (void)xQueueSend(s_keys, &key, 0);
             printf("BRIDGE key %c\n", key);
+            state = 0;
+        } else if ((state == 3 || state == 4) && c >= '0' && c <= '9') {
+            number = number * 10 + (c - '0');
+            ++state;
+        } else if (state == 5 && c == '>' && number < (int)FPV_CHANNELS) {
+            const int command = COMMAND_SET_CHANNEL + number;
+            if (s_commands) (void)xQueueSend(s_commands, &command, 0);
+            printf("BRIDGE channel %d (%u MHz)\n", number, rf_channel_freq((size_t)number));
             state = 0;
         } else {
             state = c == '<' ? 1 : 0;

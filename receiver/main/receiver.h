@@ -125,6 +125,16 @@ extern volatile bool s_detected_std_valid;
 extern volatile video_standard_t s_detected_std;
 extern volatile int64_t s_last_video_us;           /* last burst-confirmed sync */
 extern QueueHandle_t s_commands;
+/* c5vrx-wifi bridge: s_commands value COMMAND_SET_CHANNEL + index tunes
+ * straight to that channel (index = band * 8 + channel, rf.h order). */
+#define COMMAND_SET_CHANNEL 0x100
+/* c5vrx-wifi bridge: the bridge's keys arrive on D4 (GPIO23), the DAC's
+ * bit 0, which then stays off the video bus (5-bit video, bit 0 always 0)
+ * so no wire to the GPIO2 pad on the back is needed. 0: keys on GPIO2,
+ * full 6-bit DAC. */
+#ifndef BRIDGE_KEYS_ON_D4
+#define BRIDGE_KEYS_ON_D4 1
+#endif
 void control_start(void);
 video_standard_t menu_standard(void);
 void control_print(void);

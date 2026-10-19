@@ -252,6 +252,11 @@ static void command(int c, unsigned *menu_idle)
         printf("COMMAND %c refused=busy (a calibration or lane test owns the picture; retry when it ends)\n", c);
         return;
     }
+    if (c >= COMMAND_SET_CHANNEL && c < COMMAND_SET_CHANNEL + (int)FPV_CHANNELS) {
+        /* c5vrx-wifi bridge: band and channel picked on the phone */
+        if (rf_set_channel((size_t)(c - COMMAND_SET_CHANNEL)) == ESP_OK) after_retune();
+        return;
+    }
     switch (c) {
     case 'o': if (s_menu_active) menu_close(); else if (menu_open()) s_menu_cursor = 0; break;
     case 'e': menu_close(); break;  /* idempotent web-menu EXIT */

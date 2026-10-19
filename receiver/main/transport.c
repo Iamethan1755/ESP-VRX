@@ -46,8 +46,9 @@ static bool s_prog_lp;   /* U85Q-LP instructions loaded */
 static const void *tracker_program(bool lp) { return lp ? s_u85q_lp : s_u85q; }
 
 /* 6-bit resistor DAC, LSB first (XIAO D4..D9; 8.2k/3.9k/2k/1k/470R/240R
- * plus 200R). Do not change the tested pin order. */
-static const int s_dac_gpio[8] = {23, 24, 11, 12, 8, 9, -1, -1};
+ * plus 200R). Do not change the tested pin order. With the Wi-Fi bridge's
+ * keys on D4 (receiver.h) bit 0 is not output and D4 is the key input. */
+static const int s_dac_gpio[8] = {BRIDGE_KEYS_ON_D4 ? -1 : 23, 24, 11, 12, 8, 9, -1, -1};
 
 DMA_ATTR __attribute__((aligned(64))) uint8_t s_raw_ring[RAW_RING_BYTES];
 static parlio_rx_unit_handle_t s_rx;
