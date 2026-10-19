@@ -43,8 +43,8 @@ function Invoke-Project([string]$name, [string]$dir, [string[]]$extra) {
     if ($LASTEXITCODE -ne 0) { throw "$name failed (exit $LASTEXITCODE)" }
 }
 
-# The receiver is the C5VRX submodule (branch wifi-bridge): its sdkconfig
-# lives in the build folder so the submodule's tree stays clean.
+# The receiver is C5VRX (receiver/UPSTREAM.md): its sdkconfig lives in the
+# build folder so receiver/ stays as released.
 if ($Target -in 'all', 'receiver') {
     Invoke-Project 'receiver' 'receiver' @('-D', "SDKCONFIG=$(Join-Path $root 'build\receiver\sdkconfig')")
 }
