@@ -3,3 +3,9 @@ dependencies:
   idf: ">=6.0"
   espressif/esp_new_jpeg: "^1.0.2"
   espressif/mdns: "^1.14.0"
+  # The SPI screen's ILI9341 driver (the ST7789 one is part of ESP-IDF),
+  # only with menuconfig BRIDGE_SPI_DISPLAY.
+  espressif/esp_lcd_ili9341:
+    version: "^2.0.1"
+    rules:
+      - if: "$CONFIG{BRIDGE_SPI_DISPLAY} == True"

@@ -35,6 +35,7 @@ def main() -> int:
     exe = HERE / ("test_video.exe" if sys.platform == "win32" else "test_video")
     cmd = [sys.executable, "-m", "ziglang", "cc", "-O2", "-std=c11", "-Wall", "-Wextra", "-Werror",
            f"-I{MAIN}", str(HERE / "test_video.c"), str(MAIN / "video.c"), str(MAIN / "testpattern.c"), str(MAIN / "denoise.c"),
+           str(MAIN / "mbox.c"),
            "-o", str(exe)]
     if subprocess.call(cmd) != 0:
         return 1

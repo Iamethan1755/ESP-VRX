@@ -9,6 +9,7 @@
 #include "bridge.h"
 #include "c5link.h"
 #include "capture.h"
+#include "display.h"
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
 #include "esp_heap_caps.h"
@@ -58,9 +59,13 @@ static void print_status(void)
     bridge_status_t s;
     bridge_get_status(&s);
     const video_stats_t *v = &s.video;
+    char lcd[24] = "";   /* frames per second on the SPI screen */
+#ifdef CONFIG_BRIDGE_SPI_DISPLAY
+    snprintf(lcd, sizeof lcd, " lcd_fps=%.1f", display_fps());
+#endif
     printf("STATUS source=%s capture=%s h_lock=%d v_lock=%d std=%s lines/field=%d line_us=%.3f "
            "sync=%.1f blank=%.1f map=%.1f..%.1f levels=%s filter=%s denoise=%d fields=%lu overruns=%lu lock_losses=%lu "
-           "h_offset=%.1fus v_offset=%d rate=%.2fMS/s load=%.0f%% pass_max=%luus gap_max=%luus line_max=%luus(kind %lu) fps=%.1f jpeg=%lu clients=%d wifi=" CONFIG_BRIDGE_WIFI_SSID " stations=%d "
+           "h_offset=%.1fus v_offset=%d rate=%.2fMS/s load=%.0f%% pass_max=%luus gap_max=%luus line_max=%luus(kind %lu) fps=%.1f%s jpeg=%lu clients=%d wifi=" CONFIG_BRIDGE_WIFI_SSID " stations=%d "
            "heap_int=%lu heap_psram=%lu up=%lus reset=%s\n",
            bridge_source_name(s.source), s.capture_ok ? "ok" : "FAIL", v->h_locked, v->v_locked,
            v->std == VIDEO_STD_PAL ? "PAL" : "NTSC", v->lines_per_field, v->line_us, v->sync_level,
@@ -68,7 +73,7 @@ static void print_status(void)
            v->filter == VIDEO_FILTER_MEDIAN ? "median" : "smooth", (int)stream_denoise(), (unsigned long)v->fields, (unsigned long)v->overruns, (unsigned long)v->lock_losses,
            v->h_offset_tenths_us / 10.0, v->v_offset_lines, s.sample_msps, s.decode_load * 100,
            (unsigned long)s.max_pass_us, (unsigned long)s.max_gap_us, (unsigned long)s.max_line_us,
-           (unsigned long)s.max_line_kind, s.fps,
+           (unsigned long)s.max_line_kind, s.fps, lcd,
            (unsigned long)s.jpeg_bytes, s.clients, s.stations, (unsigned long)s.heap_internal, (unsigned long)s.heap_psram,
            (unsigned long)s.uptime_s, bridge_reset_reason());
 }

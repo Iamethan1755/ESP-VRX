@@ -77,6 +77,8 @@ menu "VRX Bridge"
             Wire this pin (D8 on the XIAO ESP32-S3) through a 1 kOhm resistor
             to GPIO2 of the XIAO ESP32-C5 (the MTMS pad on its back). The
             receiver needs the wifi-bridge branch of C5VRX in receiver/.
+            D8 is also the SPI screen's clock: with BRIDGE_SPI_DISPLAY, move
+            one of them.
 
     config BRIDGE_GPIO_PCLK_LOOP
         int "Unconnected GPIO that loops the sample clock back"
@@ -99,5 +101,74 @@ menu "VRX Bridge"
     config BRIDGE_TEST_PATTERN_AT_BOOT
         bool "Start with the NTSC test pattern instead of the C5 input"
         default n
+
+    config BRIDGE_SPI_DISPLAY
+        bool "SPI TFT screen (320x240 ILI9341 / ST7789) on D7..D10"
+        default n
+        help
+            Shows the live picture on a 320x240 SPI TFT wired to the XIAO
+            ESP32-S3, with no Wi-Fi in between; the phone stream keeps
+            working. The common red 2.8"/3.2" ILI9341 board, or an ST7789
+            IPS module. Wire RESET and LED (backlight) to 3V3; MISO and the
+            touch pins stay unconnected (no S3 pins are left for touch).
+
+    if BRIDGE_SPI_DISPLAY
+
+    choice BRIDGE_DISPLAY_PANEL
+        prompt "Screen controller"
+        default BRIDGE_DISPLAY_ILI9341
+        config BRIDGE_DISPLAY_ILI9341
+            bool "ILI9341 (red 2.8\"/3.2\" TN board)"
+        config BRIDGE_DISPLAY_ST7789
+            bool "ST7789 (IPS module, 240x320)"
+    endchoice
+
+    config BRIDGE_DISPLAY_SPI_MHZ
+        int "SPI clock (MHz)"
+        range 10 80
+        default 40
+        help
+            40 MHz sends a whole 320x240 frame in 31 ms, just enough for
+            30 fps; the ILI9341 datasheet only promises 10 MHz, but these
+            boards commonly run 40. Lower it if the picture shows wrong
+            pixels or stripes (long or loose wires).
+
+    config BRIDGE_DISPLAY_INVERT
+        bool "Invert colours (most ST7789 IPS modules need it)"
+        default y if BRIDGE_DISPLAY_ST7789
+        default n
+        help
+            On if the picture looks like a photo negative.
+
+    config BRIDGE_DISPLAY_ROTATE_180
+        bool "Turn the picture upside down (rotate 180 degrees)"
+        default n
+
+    config BRIDGE_DISPLAY_MIRROR
+        bool "Mirror the picture"
+        default n
+        help
+            For a module that shows the picture mirrored (text reads
+            backwards); combine with the 180 degree rotation if it is then
+            upside down.
+
+    config BRIDGE_DISPLAY_GPIO_SCK
+        int "GPIO for the screen's SCK (D8)"
+        default 7
+    config BRIDGE_DISPLAY_GPIO_MOSI
+        int "GPIO for the screen's SDI / MOSI (D10)"
+        default 9
+    config BRIDGE_DISPLAY_GPIO_CS
+        int "GPIO for the screen's CS (D9)"
+        default 8
+    config BRIDGE_DISPLAY_GPIO_DC
+        int "GPIO for the screen's DC / RS (D7)"
+        default 44
+        help
+            Never GPIO1..6 (video, keys), 42 (clock loop) or 43 (D6, the
+            boot log); the build stops with an error if a screen pin is one
+            of the bridge's other pins.
+
+    endif
 
 endmenu

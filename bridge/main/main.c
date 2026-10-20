@@ -14,6 +14,7 @@
 #include "c5link.h"
 #include "capture.h"
 #include "console.h"
+#include "display.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
@@ -31,7 +32,7 @@ static const uint32_t s_fs_hz = CONFIG_BRIDGE_SAMPLE_MHZ * 1000000u;
 static video_t s_video;
 static testpattern_t s_tp;
 static bool s_tp_ready;
-static uint8_t *s_fb[3];   /* the decoder renders into one, see stream_submit */
+static uint8_t *s_fb[STREAM_FRAMES];   /* the decoder renders into one, see stream_submit */
 static bridge_source_t s_source;
 static QueueHandle_t s_cmds;
 static volatile uint32_t s_write_pos;
@@ -238,6 +239,14 @@ static void decode_task(void *arg)
     }
 }
 
+bool bridge_locked(void)
+{
+    portENTER_CRITICAL(&s_mux);
+    const bool locked = s_vstats.h_locked && s_vstats.v_locked;
+    portEXIT_CRITICAL(&s_mux);
+    return locked;
+}
+
 void bridge_get_status(bridge_status_t *out)
 {
     memset(out, 0, sizeof *out);
@@ -334,12 +343,21 @@ void app_main(void)
     console_start();
     if (!heap_caps_get_total_size(MALLOC_CAP_SPIRAM))
         ESP_LOGE(TAG, "no PSRAM found: frames use internal RAM, Wi-Fi may run short");
-    for (int i = 0; i < 3; i++) s_fb[i] = alloc_frame();
-    ESP_ERROR_CHECK(s_cmds && s_fb[0] && s_fb[1] && s_fb[2] ? ESP_OK : ESP_ERR_NO_MEM);
+    bool frames_ok = true;
+    for (int i = 0; i < STREAM_FRAMES; i++) {
+        s_fb[i] = alloc_frame();
+        frames_ok = frames_ok && s_fb[i];
+    }
+    ESP_ERROR_CHECK(s_cmds && frames_ok ? ESP_OK : ESP_ERR_NO_MEM);
     ESP_ERROR_CHECK(capture_init(s_fs_hz));
     video_init(&s_video, capture_ring(), CAPTURE_RING_BYTES, s_fs_hz, s_fb[0], on_field, NULL);
     if (c5link_init() != ESP_OK) ESP_LOGE(TAG, "receiver key link unavailable");
-    ESP_ERROR_CHECK(stream_start(s_fb[1], s_fb[2]));
+#ifdef CONFIG_BRIDGE_SPI_DISPLAY
+    /* Before Wi-Fi takes the internal RAM the screen's DMA strips need. The
+     * screen is optional: without it the stream runs as usual. */
+    if (display_start() != ESP_OK) ESP_LOGE(TAG, "SPI screen unavailable");
+#endif
+    ESP_ERROR_CHECK(stream_start(s_fb));
 #ifdef CONFIG_BRIDGE_TEST_PATTERN_AT_BOOT
     set_source(SOURCE_TEST_NTSC);
 #else

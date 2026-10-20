@@ -38,6 +38,8 @@ typedef struct {
  * Returns false for anything else. */
 bool bridge_command(char c);
 void bridge_get_status(bridge_status_t *out);
+/* Line and field sync locked, as of the decoder's last report (0.5 s). */
+bool bridge_locked(void);
 int bridge_status_json(char *buf, size_t len);
 /* Copies up to `max` of the most recent bus samples; returns the count. */
 uint32_t bridge_snapshot_raw(uint8_t *dst, uint32_t max, uint32_t *fs_hz);

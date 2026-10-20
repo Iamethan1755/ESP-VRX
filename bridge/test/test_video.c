@@ -1,12 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Host test: decode the synthetic NTSC/PAL source with the bridge's video
- * decoder and check lock, standard, field rate, alignment and levels.
+ * decoder and check lock, standard, field rate, alignment and levels;
+ * also the frame mailbox between the decoder and its readers.
  * Build and run: python bridge/test/run_host_tests.py */
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
 #include "denoise.h"
+#include "mbox.h"
 #include "testpattern.h"
 #include "video.h"
 
@@ -279,9 +281,113 @@ static void check_med3(void)
     CHECK(bad == 0, "video_med3 is not a median");
 }
 
+/* The original encoder-only mailbox (stream.c before the SPI screen), for
+ * comparison: a frame no one took comes back, else a free buffer. */
+typedef struct { uint8_t *ready, *free_[2]; int nfree; } old_mbox_t;
+
+static uint8_t *old_submit(old_mbox_t *o, uint8_t *fb)
+{
+    uint8_t *next = fb;
+    if (o->ready) next = o->ready;
+    else if (o->nfree > 0) next = o->free_[--o->nfree];
+    if (next != fb) o->ready = fb;
+    return next;
+}
+
+static uint8_t *old_take(old_mbox_t *o)
+{
+    uint8_t *fb = o->ready;
+    o->ready = NULL;
+    return fb;
+}
+
+static void old_release(old_mbox_t *o, uint8_t *fb)
+{
+    if (o->nfree < 2) o->free_[o->nfree++] = fb;
+}
+
+static uint32_t stamp(const uint8_t *b) { uint32_t v; memcpy(&v, b, 4); return v; }
+static void set_stamp(uint8_t *b, uint32_t v) { memcpy(b, &v, 4); }
+
+/* Frame mailbox (mbox.c) in random orders of submits, takes and releases.
+ * Each buffer carries the number of the frame drawn into it; the decoder
+ * scribbles over its next buffer at once. The decoder must always get a
+ * buffer back, never the published one or one a reader holds (a reader's
+ * frame must be unchanged when handed back); every take must return the
+ * newest frame, each at most once per reader. With one reader the frames
+ * must reach the encoder exactly as through the original mailbox. */
+static void check_mailbox(void)
+{
+    static uint8_t bufs[MBOX_FRAMES_MAX][4], old_bufs[3][4];
+    const uint32_t scribble = 0xdeadbeefu;
+    uint32_t rng = 1;
+    for (int readers = 1; readers <= MBOX_READERS_MAX; readers++) {
+        uint8_t *frames[MBOX_FRAMES_MAX];
+        for (int i = 0; i < MBOX_FRAMES_MAX; i++) frames[i] = bufs[i];
+        mbox_t m;
+        mbox_init(&m, frames, readers);
+        old_mbox_t o = {NULL, {old_bufs[1], old_bufs[2]}, 2};
+        uint8_t *dec = frames[0], *old_dec = old_bufs[0], *held[MBOX_READERS_MAX] = {0}, *old_held = NULL;
+        uint32_t held_stamp[MBOX_READERS_MAX] = {0}, had[MBOX_READERS_MAX] = {0}, seq = 0;
+        int bad = 0, reads = 0, differ = 0;
+        for (int step = 0; step < 200000; step++) {
+            rng = rng * 1103515245u + 12345u;
+            const unsigned op = rng >> 16 & 7;
+            if (op < 3) {
+                set_stamp(dec, ++seq);
+                uint8_t *next = mbox_submit(&m, dec, VIDEO_W, 240);
+                bad += next == dec || next == m.ready;
+                for (int r = 0; r < readers; r++) bad += next == held[r];
+                dec = next;
+                set_stamp(dec, scribble);
+                if (readers == 1) {
+                    set_stamp(old_dec, seq);
+                    uint8_t *old_next = old_submit(&o, old_dec);
+                    differ += old_next == old_dec;
+                    old_dec = old_next;
+                    set_stamp(old_dec, scribble);
+                }
+                continue;
+            }
+            const int r = (int)(op - 3) % readers;
+            if (held[r]) {
+                bad += stamp(held[r]) != held_stamp[r];
+                mbox_release(&m, held[r]);
+                held[r] = NULL;
+                if (readers == 1) {
+                    differ += stamp(old_held) != held_stamp[r];
+                    old_release(&o, old_held);
+                    old_held = NULL;
+                }
+                continue;
+            }
+            int w = 0, h = 0;
+            held[r] = mbox_take(&m, r, &w, &h);
+            if (held[r]) {
+                held_stamp[r] = stamp(held[r]);
+                bad += held_stamp[r] != seq || seq == had[r] || w != VIDEO_W || h != 240;
+                had[r] = seq;
+                reads++;
+            } else {
+                bad += seq != had[r];   /* NULL only when this reader had the newest */
+            }
+            if (readers == 1) {
+                old_held = old_take(&o);
+                differ += !old_held != !held[r] || (old_held && stamp(old_held) != held_stamp[r]);
+            }
+        }
+        printf("mailbox, %d reader(s): %u frames, %d read, %d wrong%s\n", readers, (unsigned)seq, reads, bad,
+               readers == 1 ? (differ ? ", DIFFERS from the original" : ", same as the original") : "");
+        CHECK(bad == 0, "mailbox with %d reader(s): %d wrong hand-offs", readers, bad);
+        CHECK(differ == 0, "mailbox with one reader differs from the original in %d steps", differ);
+        CHECK(reads > 10000, "mailbox with %d reader(s): only %d frames read", readers, reads);
+    }
+}
+
 int main(void)
 {
     check_med3();
+    check_mailbox();
     scenario("ntsc_10mhz", 10000000, false, 0);
     scenario("pal_10mhz", 10000000, true, 0);
     scenario("ntsc_20mhz", 20000000, false, 0);

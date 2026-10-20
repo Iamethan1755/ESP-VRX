@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "denoise.h"
+#include "mbox.h"
 #include "mdns.h"
 #include "bridge.h"
 #include "c5link.h"
@@ -81,55 +82,50 @@ static void *alloc_big(size_t n)
     return p ? p : heap_caps_malloc(n, MALLOC_CAP_8BIT);
 }
 
-/* Frame mailbox between the decoder (core 1) and the encoder: three frame
- * buffers, each owned by the decoder (rendering), the mailbox (the newest
- * finished frame, waiting) or the encoder, or free. A frame finished while
- * the encoder is busy replaces the waiting one, so the encoder always
- * starts on the newest picture and the decoder never waits or skips a
- * submit (a skipped submit once moved the stream to the other field
- * parity: the picture bobbed). */
+/* Frame mailbox between the decoder (core 1) and its readers here, the
+ * encoder and the screen (mbox.h): the encoder always starts on the newest
+ * picture and the decoder never waits or skips a submit. */
+enum { READER_JPEG, READER_DISPLAY };
 static portMUX_TYPE s_mbox_mux = portMUX_INITIALIZER_UNLOCKED;
-static uint8_t *s_ready;          /* newest finished frame, NULL when none waits */
-static int s_ready_w, s_ready_h;
-static uint8_t *s_free[2];
-static int s_nfree;
+static mbox_t s_mbox;
+#ifdef CONFIG_BRIDGE_SPI_DISPLAY
+static volatile TaskHandle_t s_display;   /* set by the display task once its panel is up */
+#endif
 
 uint8_t *stream_submit(uint8_t *fb, int w, int h)
 {
-    uint8_t *next = fb;   /* no mailbox yet: the decoder keeps its buffer */
     portENTER_CRITICAL(&s_mbox_mux);
-    if (s_ready) {
-        next = s_ready;   /* the encoder never took it: newer picture wins */
-    } else if (s_nfree > 0) {
-        next = s_free[--s_nfree];
-    }
-    if (next != fb) {
-        s_ready = fb;
-        s_ready_w = w;
-        s_ready_h = h;
-    }
+    uint8_t *next = mbox_submit(&s_mbox, fb, w, h);
     portEXIT_CRITICAL(&s_mbox_mux);
     if (next != fb && s_encoder) xTaskNotifyGive(s_encoder);
+#ifdef CONFIG_BRIDGE_SPI_DISPLAY
+    if (next != fb && s_display) xTaskNotifyGive(s_display);
+#endif
     return next;
 }
 
-static uint8_t *mbox_take(int *w, int *h)
+static uint8_t *frame_take(int reader, int *w, int *h)
 {
     portENTER_CRITICAL(&s_mbox_mux);
-    uint8_t *fb = s_ready;
-    s_ready = NULL;
-    *w = s_ready_w;
-    *h = s_ready_h;
+    uint8_t *fb = mbox_take(&s_mbox, reader, w, h);
     portEXIT_CRITICAL(&s_mbox_mux);
     return fb;
 }
 
-static void mbox_release(uint8_t *fb)
+static void frame_release(const uint8_t *fb)
 {
     portENTER_CRITICAL(&s_mbox_mux);
-    if (s_nfree < 2) s_free[s_nfree++] = fb;
+    mbox_release(&s_mbox, fb);
     portEXIT_CRITICAL(&s_mbox_mux);
 }
+
+#ifdef CONFIG_BRIDGE_SPI_DISPLAY
+void stream_display_attach(void) { s_display = xTaskGetCurrentTaskHandle(); }
+
+const uint8_t *stream_display_take(int *w, int *h) { return frame_take(READER_DISPLAY, w, h); }
+
+void stream_display_release(const uint8_t *fb) { frame_release(fb); }
+#endif
 
 /* Temporal denoise state (encoder task only, plus the on/off switch). */
 static uint8_t *s_nr;
@@ -155,7 +151,7 @@ static void encoder_task(void *arg)
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         int w, h;
-        uint8_t *fb = mbox_take(&w, &h);
+        uint8_t *fb = frame_take(READER_JPEG, &w, &h);
         if (!fb) continue;
         if (!enc || enc_w != w || enc_h != h) {
             if (enc) jpeg_enc_close(enc);
@@ -169,7 +165,7 @@ static void encoder_task(void *arg)
             if (jpeg_enc_open(&cfg, &enc) != JPEG_ERR_OK) {
                 ESP_LOGE(TAG, "JPEG encoder %dx%d failed to open", w, h);
                 enc = NULL;
-                mbox_release(fb);
+                frame_release(fb);
                 continue;
             }
             enc_w = w;
@@ -184,12 +180,12 @@ static void encoder_task(void *arg)
             s_nr_valid = true;
             s_nr_h = h;
             src = s_nr;
-            mbox_release(fb);
+            frame_release(fb);
             fb = NULL;
         }
         int out_len = 0;
         jpeg_error_t err = jpeg_enc_process(enc, src, w * h, s_spare, JPEG_MAX, &out_len);
-        if (fb) mbox_release(fb);
+        if (fb) frame_release(fb);
         if (err != JPEG_ERR_OK || out_len <= 0) continue;
 
         xSemaphoreTake(s_lock, portMAX_DELAY);
@@ -656,11 +652,14 @@ static esp_err_t wifi_start(void)
     return ESP_OK;
 }
 
-esp_err_t stream_start(uint8_t *spare_a, uint8_t *spare_b)
+esp_err_t stream_start(uint8_t *const *frames)
 {
-    s_free[0] = spare_a;
-    s_free[1] = spare_b;
-    s_nfree = spare_a && spare_b ? 2 : 0;
+    bool frames_ok = true;
+    for (int i = 0; i < STREAM_FRAMES; i++) frames_ok = frames_ok && frames[i];
+    if (!frames_ok) return ESP_ERR_NO_MEM;
+    portENTER_CRITICAL(&s_mbox_mux);
+    mbox_init(&s_mbox, frames, STREAM_FRAMES - 2);
+    portEXIT_CRITICAL(&s_mbox_mux);
     s_lock = xSemaphoreCreateMutex();
     s_notify_lock = xSemaphoreCreateMutex();
     s_jpeg = alloc_big(JPEG_MAX);
@@ -669,7 +668,7 @@ esp_err_t stream_start(uint8_t *spare_a, uint8_t *spare_b)
     s_nr = heap_caps_aligned_calloc(16, 1, DENOISE_W_MAX * 288, MALLOC_CAP_SPIRAM);
     if (!s_nr) s_nr = heap_caps_aligned_calloc(16, 1, DENOISE_W_MAX * 288, MALLOC_CAP_8BIT);
     s_nr_on = s_nr != NULL;   /* on by default */
-    if (!s_nfree || !s_lock || !s_notify_lock || !s_jpeg || !s_spare) return ESP_ERR_NO_MEM;
+    if (!s_lock || !s_notify_lock || !s_jpeg || !s_spare) return ESP_ERR_NO_MEM;
     /* Low priority on core 0: encoding a noisy picture takes longer than a
      * frame, so the encoder runs nonstop and must only get what the web
      * server, viewers and USB console leave (at 5 it starved the console). */
