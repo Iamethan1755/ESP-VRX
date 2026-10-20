@@ -42,7 +42,8 @@ def main() -> None:
     w, h = 320, 288 if a.pal else 240
     status = {"source": "c5", "capture_ok": True, "h_locked": True, "v_locked": True, "std": "PAL" if a.pal else "NTSC",
               "lines_per_field": 312 if a.pal else 262, "line_us": 63.55, "sync": 15.0, "blank": 21.0, "black": 18.0,
-              "white": 40.0, "levels": "auto", "filter": "median", "denoise": True, "fields": 0, "overruns": 0,
+              "white": 40.0, "levels": "auto", "filter": "median", "denoise": True, "colour": True,
+              "colour_shown": True, "burst": 2.7, "slips": 0, "clock_ppm": 1.9, "fields": 0, "overruns": 0,
               "lock_losses": 0, "h_offset_us": 0.0, "v_offset": 0, "msps": 20.0, "load": 0.6, "fps": a.fps,
               "jpeg_bytes": 0, "frames": 0, "clients": 0, "stations": 1, "c5_keys": 0, "heap_int": 140000,
               "heap_psram": 7900000, "uptime": 0, "reset": "mock", "c5_channel": -1}

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
-set(srcs "main.c" "capture.c" "video.c" "testpattern.c" "stream.c" "console.c" "c5link.c" "denoise.c" "mbox.c")
+set(srcs "main.c" "capture.c" "video.c" "chroma_pie.S" "testpattern.c" "stream.c" "console.c" "c5link.c" "denoise.c"
+         "mbox.c")
 if(CONFIG_BRIDGE_SPI_DISPLAY)
     list(APPEND srcs "display.c")
 endif()

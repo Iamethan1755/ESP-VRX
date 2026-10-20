@@ -1,9 +1,61 @@
 # Colour study: NTSC colour from the C5VRX video bus
 
-Can VRX Bridge show colour, and what would it cost? This is a PC-only study
-on raw recordings of the bus between the C5 and the S3. No firmware was
-changed. The prototype is [`tools/chroma_study.py`](../tools/chroma_study.py);
-every number below comes from it unless a source is named.
+Can VRX Bridge show colour, and what would it cost? This started as a
+PC-only study on raw recordings of the bus between the C5 and the S3, with
+the prototype [`tools/chroma_study.py`](../tools/chroma_study.py); every
+number in the sections after "On the board" comes from it unless a source is
+named. The firmware has since been built and measured on the board: see the
+next section.
+
+## On the board (2026-10-20)
+
+Colour runs on the bridge: NTSC fields with a colour burst come out in
+colour, at ~21 fps live (gray: 30), with no decoder overruns. The `m` key
+and the page's Colour button switch back to gray.
+
+| Live, same indoor scene, bench pair | colour | gray |
+| --- | --- | --- |
+| decoder time per line in drawn fields (a line lasts 63.6 µs) | 62.3 µs | 50.3 µs |
+| ... in fields that are not drawn | 23.0 µs | 20.7 µs |
+| core 1 load (`s`) | 61 % | 59 % |
+| overruns | 0 | 0 |
+| JPEG frames per second | ~21 | 30 |
+| JPEG size (q60) | ~18 KB | ~15 KB |
+| burst level | 2.1-2.3 codes | |
+
+| Live colour (board) | Live gray (same firmware, seconds later) | Test pattern, 75 % bars (board) |
+| --- | --- | --- |
+| ![Live colour](colour-study/board-live-colour.jpg) | ![Live gray](colour-study/board-live-gray.jpg) | ![Colour bars](colour-study/board-test-bars.jpg) |
+
+What it took, against the plan below:
+
+- **The instruction counts were 2-3x low.** The first build (YCbYCr written
+  by the decoder, chroma in plain C at 80 blocks a line) needed 106 µs per
+  drawn line on the test pattern and overran. Measured with the cycle
+  counter, per drawn line: chroma sums 9,400 cycles, Cb/Cr interpolation and
+  packing 5,300, the 640-byte row to PSRAM 4,200 (PSRAM writes stall on
+  cache-line fills, worse while core 0 moves frames), luma 8,300.
+- **What made it fit.** Chroma sums with the S3's SIMD
+  (`bridge/main/chroma_pie.S`, 16 multiply-adds per instruction, checked
+  against the C version at start); chroma only on the even rows (JPEG 4:2:0
+  halves vertical chroma anyway) and over 64 blocks of 16 samples; the frame
+  as luma rows plus a small Cb/Cr plane, so the decoder writes no more to
+  PSRAM than for gray; the burst of every other line only; the level LUT
+  folded into the pixel loop (gray profits too: 61.6 µs per drawn line live
+  before these changes, 50.3 after).
+- **Core 0** builds YCbYCr 16 rows at a time in internal RAM for
+  esp_new_jpeg's block encoder (no colour frame in PSRAM). Colour JPEG,
+  denoise of both planes and the band conversion hold it to ~21 fps.
+- **Slips.** The detector counts more steps than the clock offset implies
+  (live: ~60 a second against ~37 at 1.9 ppm), in up/down pairs from noise,
+  so the signed sum and the `clock` reading (+1-2 ppm) stay right. A second
+  far-off burst now has to be off to the same side as the first.
+- **The test pattern** has 75 % colour bars with a burst. Its per-phase lines
+  sit in internal RAM, and it writes at most 3/4 of the ring per pass: one
+  pass for all the time since a long one overran the ring (also in gray).
+
+Not done: colour at 30 fps (core 0 bound), PAL colour, a check of hue
+against a known colour target in front of the camera.
 
 ## Answer
 

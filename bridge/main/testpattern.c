@@ -1,8 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Synthetic interlaced NTSC/PAL composite source, see testpattern.h. */
 #include "testpattern.h"
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define FSC_HZ (315e6 / 88)   /* NTSC colour subcarrier */
+#define TWO_PI 6.283185307179586
 
 /* What each half of a line carries. */
 typedef enum { H_PIC, H_BLANK, H_EQ, H_BROAD } half_t;
@@ -98,6 +102,18 @@ bool testpattern_init_levels(testpattern_t *t, uint8_t *ring, uint32_t ring_size
     return true;
 }
 
+static void colour_free(testpattern_t *t)
+{
+    for (int q = 0; q < TP_PHASES; q++) {
+        free(t->c_bars[q]);
+        t->c_bars[q] = NULL;
+    }
+    free(t->c_burst);
+    free(t->c_blank);
+    t->c_burst = t->c_blank = NULL;
+    t->colour = false;
+}
+
 void testpattern_free(testpattern_t *t)
 {
     uint8_t **tpl[] = {&t->t_eq, &t->t_broad, &t->t_blank, &t->t_bars, &t->t_ramp, &t->pic, &t->buf};
@@ -105,6 +121,51 @@ void testpattern_free(testpattern_t *t)
         free(*tpl[k]);
         *tpl[k] = NULL;
     }
+    colour_free(t);
+}
+
+static uint8_t clamp63(double v) { return (uint8_t)(v < 0 ? 0 : v > 63 ? 63 : (int)(v + 0.5)); }
+
+bool testpattern_set_colour(testpattern_t *t, bool on)
+{
+    t->colour = false;
+    if (!on) return true;
+    if (t->pal) return false;
+    const int n = t->len_max;
+    if (!t->c_blank) {
+        t->b0 = (int)(5.3 * t->fs_hz / 1e6 + 0.5);
+        t->b_len = (int)(9 / FSC_HZ * t->fs_hz + 0.5);
+        bool ok = (t->c_burst = malloc((size_t)(t->b_len * TP_PHASES))) && (t->c_blank = malloc((size_t)n));
+        for (int q = 0; q < TP_PHASES; q++) ok = ok && (t->c_bars[q] = malloc((size_t)n));
+        if (!ok) {
+            colour_free(t);
+            return false;
+        }
+        memcpy(t->c_blank, t->t_blank, (size_t)n);
+        /* 75 % bars: white, yellow, cyan, green, magenta, red, blue, black.
+         * Y = 0.299 R + 0.587 G + 0.114 B, U = 0.492 (B - Y), V = 0.877 (R - Y),
+         * chroma U sin + V cos of the subcarrier, the burst at 180 degrees
+         * (-sin), 20 IRE, 5.3 us after the sync edge for 9 cycles. */
+        static const uint8_t rgb[8] = {7, 6, 3, 2, 5, 4, 1, 0};   /* bit 2 R, bit 1 G, bit 0 B */
+        const double w0 = TWO_PI * FSC_HZ / t->fs_hz, ire = (t->lv_white - t->lv_blank) / 100.0;
+        for (int q = 0; q < TP_PHASES; q++) {
+            const double ph = TWO_PI * q / TP_PHASES;
+            uint8_t *bu = t->c_burst + q * t->b_len, *ba = t->c_bars[q];
+            for (int k = 0; k < t->b_len; k++) bu[k] = clamp63(t->lv_blank - 20 * ire * sin(w0 * (t->b0 + k) + ph));
+            memcpy(ba, t->t_blank, (size_t)n);
+            memcpy(ba + t->b0, bu, (size_t)t->b_len);
+            for (int x = 0; x < t->x_len; x++) {
+                const int c = rgb[x * 8 / t->x_len];
+                const double r = c & 4 ? 0.75 : 0, g = c & 2 ? 0.75 : 0, b = c & 1 ? 0.75 : 0;
+                const double y = 0.299 * r + 0.587 * g + 0.114 * b, u = 0.492 * (b - y), v = 0.877 * (r - y);
+                const int k = t->x0 + x;
+                ba[k] = clamp63(t->lv_blank + 100 * ire * (y + u * sin(w0 * k + ph) + v * cos(w0 * k + ph)));
+            }
+        }
+    }
+    t->sc_inc = (uint32_t)llround(FSC_HZ / t->fs_hz * 4294967296.0);
+    t->colour = true;
+    return true;
 }
 
 void testpattern_restart(testpattern_t *t, uint32_t pos)
@@ -129,7 +190,13 @@ static void ring_write(testpattern_t *t, const uint8_t *src, uint32_t n)
 static const uint8_t *picture_line(testpattern_t *t, int row, uint32_t len)
 {
     const int rows = t->pal ? 288 : 240;
-    const uint8_t *tpl = row < rows * 2 / 3 ? t->t_bars : t->t_ramp;
+    const bool bars = row < rows * 2 / 3;
+    const uint8_t *tpl = !bars ? t->t_ramp : t->colour ? t->c_bars[t->cq] : t->t_bars;
+    if (!bars && t->colour) {   /* the ramp, with the burst */
+        memcpy(t->pic, tpl, len);
+        memcpy(t->pic + t->b0, t->c_burst + t->cq * t->b_len, (size_t)t->b_len);
+        return t->pic;
+    }
     const int box_rows = 40, box_w = t->x_len / 8;
     if (row < 40 || row >= 40 + box_rows) return tpl;
     memcpy(t->pic, tpl, len);
@@ -149,7 +216,10 @@ static const uint8_t *half_src(testpattern_t *t, half_t k, int row, uint32_t len
     case H_PIC:   return picture_line(t, row, len);
     case H_EQ:    return t->t_eq;
     case H_BROAD: return t->t_broad;
-    default:      return t->t_blank;   /* left: line sync + blanking, right: blanking */
+    default:      /* left: line sync + blanking (and burst), right: blanking */
+        if (!t->colour) return t->t_blank;
+        memcpy(t->c_blank + t->b0, t->c_burst + t->cq * t->b_len, (size_t)t->b_len);
+        return t->c_blank;
     }
 }
 
@@ -158,6 +228,9 @@ static void emit_line(testpattern_t *t)
     const uint32_t sum = t->acc_q16 + t->line_q16;
     const uint32_t len = sum >> 16;
     t->acc_q16 = sum & 0xffffu;
+    /* The subcarrier runs on in absolute samples: this line's colour lines
+     * are the ones drawn nearest its phase at the line start. */
+    if (t->colour) t->cq = (int)((t->pos * t->sc_inc + (1u << (31 - 4))) >> (32 - 4)) & (TP_PHASES - 1);
 
     const int L = t->line + 1;
     if (L == 1 || L == (t->pal ? 313 : 263)) {

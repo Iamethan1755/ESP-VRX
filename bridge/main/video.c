@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Composite video decoder for VRX Bridge: line PLL on the sync
- * edges, vertical sync from broad pulses, one grayscale frame per field.
- * See video.h. */
+ * edges, vertical sync from broad pulses, one grayscale or (NTSC) colour
+ * frame per field. See video.h. */
 #include "video.h"
+#include <math.h>
 #include <string.h>
 
 #ifdef ESP_PLATFORM
@@ -19,11 +20,25 @@
 #endif
 
 #define FREE_RUN_LINES 400    /* no vertical sync after this many lines: emit the field anyway */
+#define FSC_HZ (315e6 / 88)   /* NTSC colour subcarrier, 3.579545 MHz */
+#define TWO_PI 6.283185307179586
+/* Subcarrier table amplitude: with samples of 0..63, blocks of up to 16
+ * samples and a zero sum per block, both 16-bit halves of a packed sum
+ * stay in range. */
+#define CTAB_PEAK 31
+#define COS2_STEP 0.671f      /* cos^2(35 deg): a burst further off the reference is a phase step */
+#define WEAK_BURSTS 200       /* lines in a row without a burst that drop the reference */
 #define LOCK_GOOD      5      /* consecutive line-spaced syncs needed to lock */
 #define LOCK_MISS      30     /* consecutive missing syncs that drop the lock */
 
 static int32_t us_q8(uint32_t fs_hz, double us) { return (int32_t)(us * fs_hz / 1e6 * 256.0 + 0.5); }
 static int us_n(uint32_t fs_hz, double us) { return (int)(us * fs_hz / 1e6 + 0.5); }
+
+/* Colour burst sums (colour_burst) per DAC code of burst amplitude. */
+static inline __attribute__((always_inline)) float burst_unit(const video_t *v)
+{
+    return CTAB_PEAK / 2.0f * (float)(v->c_bblk * v->c_bblocks);
+}
 
 /* Sync detection works on the signal averaged over c_box samples (0.4 us),
  * centred on the position. On the C5 the sync tip is only ~6 codes below
@@ -187,7 +202,8 @@ static void deliver(video_t *v)
     if (v->delivered || !v->cb) return;
     v->delivered = true;
     bool render_next = true;
-    uint8_t *next = v->cb(v->fb, VIDEO_W, v->std == VIDEO_STD_PAL ? 288 : 240, v->render, &render_next, v->cb_ctx);
+    uint8_t *next = v->cb(v->fb, VIDEO_W, v->std == VIDEO_STD_PAL ? 288 : 240,
+                          v->colour_field ? VIDEO_FMT_COLOUR : VIDEO_FMT_GRAY, v->render, &render_next, v->cb_ctx);
     if (next) v->fb = next;
     v->render = render_next;
 }
@@ -235,14 +251,295 @@ static void field_start(video_t *v, bool vsync)
     deliver(v);   /* a short or free-running field that never reached its last row */
     v->delivered = false;
     v->line_in_field = carry;
+    /* Colour for the coming field: on, NTSC, a burst (on above 0.8 codes,
+     * off below 0.5) and levels to scale the chroma by. */
+    const float lim = (v->burst_ok ? 0.5f : 0.8f) * burst_unit(v);
+    const float rp = v->ref_re * v->ref_re + v->ref_im * v->ref_im;
+    v->burst_ok = v->have_ref && rp > lim * lim;
+    /* Burst samples within blanking +- (2 bursts + 4 codes): the burst and
+     * its noise pass, a click is cut down. */
+    v->burst_clip = v->have_ref ? (int)(2.0f * sqrtf(rp) / burst_unit(v) + 4.5f) : 12;
+    v->colour_field = v->colour && v->std == VIDEO_STD_NTSC && v->burst_ok && v->blank_q8 - v->sync_q8 >= 2 * 256;
+    if (v->colour_field) {
+        /* Chroma sums / reference = chroma / burst amplitude * (burst samples
+         * / block samples); the burst is 20 IRE and blanking - sync 40 IRE,
+         * so in luma 0..1 units: * (blank - sync) / 2 / (white - black). */
+        v->chroma_gain = (float)(v->blank_q8 - v->sync_q8) / (2.0f * (float)(v->map_hi_q8 - v->map_lo_q8)) *
+                         (float)(v->c_bblk * v->c_bblocks) / (float)v->c_cblk;
+    }
+}
+
+/* ---- Colour (NTSC), docs/colour-study.md ---------------------------------
+ * The C5's output has only 24 levels (~2.7 codes a step) and ~2 codes of
+ * noise, and its 20 MS/s samples drift against the S3's clock (one sample
+ * duplicated or dropped every few tens of ms on the board: the subcarrier
+ * phase steps by 64 degrees). Per line: the burst (3 blocks from 5.5 us,
+ * 8 cycles at 20 MS/s) against the subcarrier at the absolute sample index;
+ * an average of the bursts (1/8 per line) as the phase and amplitude
+ * reference, with a burst more than 35 degrees off used for its own line
+ * only and a second one in a row restarting the average (the slip);
+ * chroma sums over VIDEO_CW blocks of the even picture rows (16 samples at
+ * 20 MS/s, SIMD), rotated by the reference into the frame's Cb/Cr plane. */
+
+/* Packed cos/sin tables for `blocks` blocks of n samples from phase 0, with
+ * a zero sum per block: the rounding residue goes to the entries rounded
+ * furthest the other way. */
+static void fill_blocks(int32_t *tab, int n, int blocks, double w0)
+{
+    for (int b = 0; b < blocks; b++) {
+        double f[2][16], mean[2] = {0, 0};
+        int q[2][16];
+        for (int k = 0; k < n; k++) {
+            const double ph = w0 * (b * n + k);
+            f[0][k] = CTAB_PEAK * cos(ph);
+            f[1][k] = CTAB_PEAK * sin(ph);
+            mean[0] += f[0][k] / n;
+            mean[1] += f[1][k] / n;
+        }
+        for (int c = 0; c < 2; c++) {
+            int sum = 0;
+            for (int k = 0; k < n; k++) {
+                f[c][k] -= mean[c];
+                q[c][k] = (int)lround(f[c][k]);
+                sum += q[c][k];
+            }
+            while (sum) {
+                int best = 0;
+                double best_e = -1e9;
+                for (int k = 0; k < n; k++) {
+                    const double e = sum > 0 ? q[c][k] - f[c][k] : f[c][k] - q[c][k];
+                    if (e > best_e) {
+                        best_e = e;
+                        best = k;
+                    }
+                }
+                q[c][best] += sum > 0 ? -1 : 1;
+                sum += sum > 0 ? -1 : 1;
+            }
+        }
+        for (int k = 0; k < n; k++) tab[b * n + k] = q[0][k] * 65536 + q[1][k];
+    }
+}
+
+/* The chroma tables: int8 cos and sin per sample of the chroma span, from
+ * the packed blocks (zero sum per block). */
+static void fill_chroma(video_t *v, double w0)
+{
+    static int32_t packed[VIDEO_CSPAN];   /* 4 KiB: not on the caller's stack */
+    fill_blocks(packed, v->c_cblk, VIDEO_CW, w0);
+    for (int j = 0; j < v->c_cblk * VIDEO_CW; j++) {
+        const int32_t sn = (int16_t)packed[j];
+        v->csin[j] = (int8_t)sn;
+        v->ccos[j] = (int8_t)((packed[j] - sn) >> 16);
+    }
+}
+
+/* Chroma sums of the copied span: out[2k] = sum of x * cos, out[2k + 1] =
+ * sum of x * sin over block k (n samples). */
+static VIDEO_HOT void chroma_sums_c(const uint8_t *x, const int8_t *c, const int8_t *s, int n, int blocks, int32_t *out)
+{
+    for (int b = 0; b < blocks; b++, x += n, c += n, s += n) {
+        int32_t a = 0, q = 0;
+        for (int k = 0; k < n; k++) {
+            a += x[k] * c[k];
+            q += x[k] * s[k];
+        }
+        out[2 * b] = a;
+        out[2 * b + 1] = q;
+    }
+}
+
+#ifdef ESP_PLATFORM
+/* chroma_pie.S: the same for 16-sample blocks with the S3's 16-lane
+ * multiply-accumulate; x, c and s 16-byte aligned. */
+void chroma_sums_pie(const uint8_t *x, const int8_t *c, const int8_t *s, int blocks, int32_t *out);
+
+/* SIMD against C on a pseudo-random line; false: use C. */
+static bool chroma_selftest(video_t *v)
+{
+    if (v->c_cblk != 16) return false;
+    uint32_t r = 12345;
+    for (int j = 0; j < VIDEO_CSPAN + 16; j++) {
+        r = r * 1664525u + 1013904223u;
+        v->cline[j] = (uint8_t)(r >> 26);   /* 0..63 */
+    }
+    int32_t a[2 * VIDEO_CW], b[2 * VIDEO_CW];
+    chroma_sums_c(v->cline, v->ccos, v->csin, 16, VIDEO_CW, a);
+    chroma_sums_pie(v->cline, v->ccos, v->csin, VIDEO_CW, b);
+    return memcmp(a, b, sizeof a) == 0;
+}
+#endif
+
+static void colour_init(video_t *v)
+{
+    const double w0 = TWO_PI * FSC_HZ / v->fs_hz;
+    v->sc_inc = (uint32_t)llround(FSC_HZ / v->fs_hz * 4294967296.0);
+    for (int k = 0; k < 256; k++) v->sc_cos[k] = (float)cos(TWO_PI * k / 256);
+    v->c_burst = us_n(v->fs_hz, 5.5);
+    v->c_bblk = us_n(v->fs_hz, 0.75);
+    if (v->c_bblk > 16) v->c_bblk = 16;
+    v->c_bblocks = 3;
+    if (v->c_bblk * v->c_bblocks > VIDEO_BTAB) v->c_bblk = VIDEO_BTAB / v->c_bblocks;
+    fill_blocks(v->btab, v->c_bblk, v->c_bblocks, w0);
+    /* Chroma: VIDEO_CW blocks over the middle of the picture (16 samples,
+     * 0.8 us at 20 MS/s: -3 dB at about 0.55 MHz). */
+    const int active = (int)(us_q8(v->fs_hz, 52.2) >> 8);
+    v->c_cblk = active / VIDEO_CW;
+    if (v->c_cblk > VIDEO_CSPAN / VIDEO_CW) v->c_cblk = VIDEO_CSPAN / VIDEO_CW;
+    v->c_coff = (active - v->c_cblk * VIDEO_CW) / 2;
+    fill_chroma(v, w0);
+#ifdef ESP_PLATFORM
+    v->pie = chroma_selftest(v);
+#endif
+}
+
+/* cos and sin of the subcarrier phase at absolute sample `pos`. */
+static inline __attribute__((always_inline)) void sc_phase(const video_t *v, int64_t pos, float *c, float *s)
+{
+    const uint32_t i = ((uint32_t)pos * v->sc_inc) >> 24;
+    *c = v->sc_cos[i];
+    *s = v->sc_cos[(i - 64u) & 255u];
+}
+
+/* The burst of the line starting at t0 (Q8): updates the reference and
+ * sets the one this line uses (line_re/im, line_ok). */
+static VIDEO_HOT void colour_burst(video_t *v, int64_t t0)
+{
+    const int64_t o = (t0 >> 8) + v->c_burst;
+    const uint32_t m = v->mask, first = (uint32_t)o & m;
+    const int n = v->c_bblk, total = n * v->c_bblocks;
+    const bool contiguous = first + (uint32_t)total <= v->ring_size;
+    const int32_t *tab = v->btab;
+    /* An FM click (a sample at 0 or 63) in the window would turn the burst
+     * by tens of degrees: samples are limited to blanking +- burst_clip. */
+    const int mid = (v->blank_q8 + 128) >> 8, lo = mid - v->burst_clip, hi = mid + v->burst_clip;
+    int32_t c = 0, s = 0;
+    for (int b = 0; b < v->c_bblocks; b++, tab += n) {
+        int32_t acc = 0;
+        const uint32_t at = (uint32_t)o + (uint32_t)(b * n);
+        for (int k = 0; k < n; k++) {
+            int x = contiguous ? v->ring[(at & m) + (uint32_t)k] : v->ring[(at + (uint32_t)k) & m];
+            x = x < lo ? lo : x > hi ? hi : x;
+            acc += x * tab[k];
+        }
+        const int32_t bs = (int16_t)acc;
+        c += (acc - bs) >> 16;
+        s += bs;
+    }
+    /* The burst is c - js at its window start; at the absolute index it is
+     * that times e^(-j phase(o)). */
+    float pc, ps;
+    sc_phase(v, o, &pc, &ps);
+    const float br = (float)c, bi = (float)-s;
+    const float ar = br * pc + bi * ps, ai = bi * pc - br * ps;
+    const float p = ar * ar + ai * ai;
+    const float unit = burst_unit(v);
+    v->line_ok = false;
+    if (!v->have_ref) {
+        if (p < 0.25f * unit * unit) return;   /* no burst (yet): a 0.5 code one starts the reference */
+        v->ref_re = ar;
+        v->ref_im = ai;
+        v->have_ref = true;
+        v->have_pend = false;
+        v->weak_bursts = 0;
+    }
+    const float rp = v->ref_re * v->ref_re + v->ref_im * v->ref_im;
+    v->line_re = v->ref_re;
+    v->line_im = v->ref_im;
+    v->line_ok = true;
+    if (p < 0.25f * rp) {
+        /* No burst on this line (vertical interval, a dropout): the
+         * reference stays, and goes after many such lines (no colour). */
+        if (++v->weak_bursts > WEAK_BURSTS) v->have_ref = v->line_ok = false;
+        return;
+    }
+    v->weak_bursts = 0;
+    const float dr = ar * v->ref_re + ai * v->ref_im, di = ai * v->ref_re - ar * v->ref_im;
+    if (dr > 0 && dr * dr > COS2_STEP * (dr * dr + di * di)) {
+        v->have_pend = false;
+        v->ref_re += (ar - v->ref_re) * 0.125f;
+        v->ref_im += (ai - v->ref_im) * 0.125f;
+        v->line_re = v->ref_re;
+        v->line_im = v->ref_im;
+        return;
+    }
+    /* Far off the reference: this line uses its own burst; a second one in
+     * a row, off to the same side and agreeing with it, is a step (a slip):
+     * the average restarts. Noise outliers fall either way. */
+    v->line_re = ar;
+    v->line_im = ai;
+    if (v->have_pend && (di < 0) == v->pend_back) {
+        const float er = ar * v->pend_re + ai * v->pend_im, ei = ai * v->pend_re - ar * v->pend_im;
+        if (er > 0 && er * er > COS2_STEP * (er * er + ei * ei)) {
+            v->slips++;
+            v->slip_sum += di < 0 ? 1 : -1;   /* phase back: a sample taken twice */
+            v->ref_re = (ar + v->pend_re) * 0.5f;
+            v->ref_im = (ai + v->pend_im) * 0.5f;
+            v->have_pend = false;
+            return;
+        }
+    }
+    v->pend_re = ar;
+    v->pend_im = ai;
+    v->pend_back = di < 0;
+    v->have_pend = true;
+}
+
+/* The chroma row `crow` (from picture row 2 * crow) into the frame's chroma
+ * plane; the chroma blocks start at sample `start`. */
+static VIDEO_HOT void render_chroma(video_t *v, uint32_t start, int crow)
+{
+    uint8_t out[VIDEO_CHROMA_ROW] __attribute__((aligned(4)));
+    const int n = v->c_cblk, span = n * VIDEO_CW;
+    if (v->line_ok && v->burst_ok) {
+        /* The reference at this line's chroma origin, and the matrix from
+         * the block sums (c, s) to Cb/Cr (Q16). With r the reference,
+         * U = (s r_im - c r_re) / |r|^2 and V = (c r_im + s r_re) / |r|^2
+         * (the NTSC burst is at 180 degrees); in luma 0..1 units,
+         * Cb = 128 + 292.3 U and Cr = 128 + 207.3 V (JFIF Cb/Cr of NTSC U/V). */
+        float pc, ps;
+        sc_phase(v, start, &pc, &ps);
+        const float rr = v->line_re * pc - v->line_im * ps, ri = v->line_im * pc + v->line_re * ps;
+        const float q = v->chroma_gain * 65536.0f / (rr * rr + ri * ri);
+        const float k[4] = {-292.3f * q * rr, 292.3f * q * ri, 207.3f * q * ri, 207.3f * q * rr};
+        int32_t kq[4];
+        for (int i = 0; i < 4; i++) kq[i] = (int32_t)(k[i] > 30000.0f ? 30000.0f : k[i] < -30000.0f ? -30000.0f : k[i]);
+        /* The samples into an aligned buffer: no ring wrap, aligned SIMD loads. */
+        const uint32_t m = v->mask, first = start & m, tail = v->ring_size - first;
+        if ((uint32_t)span <= tail) {
+            memcpy(v->cline, v->ring + first, (size_t)span);
+        } else {
+            memcpy(v->cline, v->ring + first, tail);
+            memcpy(v->cline + tail, v->ring, (size_t)span - tail);
+        }
+        int32_t sums[2 * VIDEO_CW];
+#ifdef ESP_PLATFORM
+        if (v->pie) chroma_sums_pie(v->cline, v->ccos, v->csin, VIDEO_CW, sums);
+        else
+#endif
+            chroma_sums_c(v->cline, v->ccos, v->csin, n, VIDEO_CW, sums);
+        for (int b = 0; b < VIDEO_CW; b++) {
+            const int32_t c = sums[2 * b], s = sums[2 * b + 1];
+            const int32_t u = 128 + ((kq[0] * c + kq[1] * s) >> 16), w = 128 + ((kq[2] * c + kq[3] * s) >> 16);
+            out[b] = (uint8_t)(u < 0 ? 0 : u > 255 ? 255 : u);
+            out[VIDEO_CW + b] = (uint8_t)(w < 0 ? 0 : w > 255 ? 255 : w);
+        }
+    } else {
+        memset(out, 128, sizeof out);
+    }
+    memcpy(v->fb + VIDEO_CHROMA_OFF + crow * VIDEO_CHROMA_ROW, out, VIDEO_CHROMA_ROW);
 }
 
 static VIDEO_HOT void render_line(video_t *v, int row)
 {
     /* Built in internal RAM, then copied in one go: the frame is in PSRAM.
-     * Pass 1 stores each pixel's filtered level as 4x the DAC code (0..252),
-     * pass 2 maps it through the level LUT. */
+     * Each pixel's filtered level (4x the DAC code, 0..252) goes through the
+     * level LUT in the same loop, except on every fourth line, whose levels
+     * also feed the auto-contrast statistics: there a second pass maps them
+     * (a separate pass on every line cost ~4 us of the 64 on the board). */
     uint8_t line[VIDEO_W] __attribute__((aligned(4)));
+    const uint8_t *lut = v->lut;
+    const bool stats = (row & 3) == 0;
     const int s = v->std == VIDEO_STD_PAL;
     const int64_t start = v->t_edge + v->h_start[s];
     const uint32_t base = (uint32_t)(start >> 8);
@@ -257,18 +554,28 @@ static VIDEO_HOT void render_line(video_t *v, int row)
     const uint32_t first = base & m, last = first + ((pos0 + step * (VIDEO_W - 1)) >> 8) + reach;
     if (first >= reach && last < v->ring_size) {
         const uint8_t *q = r + first;   /* the whole line is contiguous in the ring */
-        if (median) {
+        if (median && !stats) {
             /* Median of three samples two apart: an FM click (1-2 samples)
              * reaches at most one of them, so it never wins. Half the cost
              * of a 5-tap median (board: overruns at 20 MS/s with it). */
             for (int x = 0; x < VIDEO_W; x++, pos += step) {
                 const uint8_t *p = q + (pos >> 8);
+                line[x] = lut[video_med3(p[-2], p[0], p[2]) << 2];
+            }
+        } else if (median) {
+            for (int x = 0; x < VIDEO_W; x++, pos += step) {
+                const uint8_t *p = q + (pos >> 8);
                 line[x] = (uint8_t)(video_med3(p[-2], p[0], p[2]) << 2);
             }
-        } else {
+        } else if (!stats) {
             /* [1 2 1]/4 low-pass with taps 0.1 us apart: -15 dB at the NTSC and
              * -30 dB at the PAL colour subcarrier at 10 and 20 MS/s alike
              * (neighbouring samples at 20 MS/s gave only -3 dB). */
+            for (int x = 0; x < VIDEO_W; x++, pos += step) {
+                const uint8_t *p = q + (pos >> 8);
+                line[x] = lut[p[-d] + 2 * p[0] + p[d]];
+            }
+        } else {
             for (int x = 0; x < VIDEO_W; x++, pos += step) {
                 const uint8_t *p = q + (pos >> 8);
                 line[x] = (uint8_t)(p[-d] + 2 * p[0] + p[d]);
@@ -278,20 +585,21 @@ static VIDEO_HOT void render_line(video_t *v, int row)
         for (int x = 0; x < VIDEO_W; x++, pos += step) {
             const uint32_t i = base + (pos >> 8);
 #define S(k) (r[(i + (uint32_t)(k)) & m] & 63)
-            line[x] = (uint8_t)(median ? video_med3(S(-2), S(0), S(2)) << 2 : S(-d) + 2 * S(0) + S(d));
+            const int level = median ? video_med3(S(-2), S(0), S(2)) << 2 : S(-d) + 2 * S(0) + S(d);
+            line[x] = stats ? (uint8_t)level : lut[level];
 #undef S
         }
     }
-    if ((row & 3) == 0) {
+    if (stats) {
         /* Auto-contrast statistics from every fourth line, on the same
          * filtered values the pixels show (raw samples would widen the
          * percentiles by the noise and wash the picture out). */
         uint32_t *hist = v->hist;
         for (int x = 0; x < VIDEO_W; x += 2) hist[line[x] >> 2]++;
+        for (int x = 0; x < VIDEO_W; x++) line[x] = lut[line[x]];
     }
-    const uint8_t *lut = v->lut;
-    for (int x = 0; x < VIDEO_W; x++) line[x] = lut[line[x]];
     memcpy(v->fb + row * VIDEO_W, line, VIDEO_W);
+    if (v->colour_field && !(row & 1)) render_chroma(v, base + (uint32_t)v->c_coff, row / 2);
 }
 
 static void restart_tracking(video_t *v, int64_t pos)
@@ -337,6 +645,9 @@ static VIDEO_HOT void process_line(video_t *v)
     const bool pal = v->std == VIDEO_STD_PAL;
     const int rows = pal ? 288 : 240;
     const int row = v->line_in_field - (pal ? v->active_first_pal : v->active_first_ntsc) - v->v_offset;
+    /* The burst of every other line (the chroma rows'): the reference is an
+     * average anyway, and every line cost 4 us of the decoder's 64 (board). */
+    if (!broad && v->colour && !pal && v->h_locked && !(row & 1)) colour_burst(v, t0);
     if (!broad && row >= 0 && row < rows) {
         if (v->render) render_line(v, row);
         if (row == rows - 1) deliver(v);
@@ -453,6 +764,7 @@ void video_init(video_t *v, const uint8_t *ring, uint32_t ring_size, uint32_t fs
     v->levels = VIDEO_LEVELS_AUTO;
     v->filter = VIDEO_FILTER_MEDIAN;
     v->render = true;
+    colour_init(v);
     video_reset(v, 0);
 }
 
@@ -478,6 +790,10 @@ void video_reset(video_t *v, uint32_t write_pos)
     v->std_votes = 0;
     v->v_locked = false;
     v->v_miss = 0;
+    /* Sample positions start anew: the colour reference with them. */
+    v->have_ref = v->have_pend = v->line_ok = v->burst_ok = v->colour_field = false;
+    v->weak_bursts = 0;
+    v->burst_clip = 12;
 }
 
 VIDEO_HOT void video_process(video_t *v, uint32_t write_pos)
@@ -508,6 +824,13 @@ VIDEO_HOT void video_process(video_t *v, uint32_t write_pos)
         const bool unlocked = !v->h_locked, rendering = v->render;
         process_line(v);
         const uint32_t dt = NOW_US() - t0;
+        if (rendering) {
+            v->drawn_us += dt;
+            v->drawn_lines++;
+        } else {
+            v->skipped_us += dt;
+            v->skipped_lines++;
+        }
         if (dt > v->max_line_us) {
             v->max_line_us = dt;
             v->max_line_kind = (rendering ? 1u : 0u) | (v->fields != fields ? 2u : 0u) | (unlocked ? 4u : 0u);
@@ -535,6 +858,12 @@ void video_get_stats(const video_t *v, video_stats_t *o)
     o->v_offset_lines = v->v_offset;
     o->levels = v->levels;
     o->filter = v->filter;
+    o->colour = v->colour;
+    o->colour_shown = v->colour_field;
+    o->colour_simd = v->pie;
+    o->burst_level = v->have_ref ? sqrtf(v->ref_re * v->ref_re + v->ref_im * v->ref_im) / burst_unit(v) : 0.0f;
+    o->slips = v->slips;
+    o->slip_sum = v->slip_sum;
 }
 
 void video_shift_h(video_t *v, int tenths_us)
@@ -558,5 +887,10 @@ void video_set_levels(video_t *v, video_levels_t mode)
 void video_set_filter(video_t *v, video_filter_t filter)
 {
     v->filter = filter;
+}
+
+void video_set_colour(video_t *v, bool on)
+{
+    v->colour = on;
 }
 

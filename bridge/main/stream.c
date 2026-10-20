@@ -92,10 +92,10 @@ static mbox_t s_mbox;
 static volatile TaskHandle_t s_display;   /* set by the display task once its panel is up */
 #endif
 
-uint8_t *stream_submit(uint8_t *fb, int w, int h)
+uint8_t *stream_submit(uint8_t *fb, int w, int h, video_fmt_t fmt)
 {
     portENTER_CRITICAL(&s_mbox_mux);
-    uint8_t *next = mbox_submit(&s_mbox, fb, w, h);
+    uint8_t *next = mbox_submit(&s_mbox, fb, w, h, (int)fmt);
     portEXIT_CRITICAL(&s_mbox_mux);
     if (next != fb && s_encoder) xTaskNotifyGive(s_encoder);
 #ifdef CONFIG_BRIDGE_SPI_DISPLAY
@@ -104,11 +104,13 @@ uint8_t *stream_submit(uint8_t *fb, int w, int h)
     return next;
 }
 
-static uint8_t *frame_take(int reader, int *w, int *h)
+static uint8_t *frame_take(int reader, int *w, int *h, video_fmt_t *fmt)
 {
+    int f = VIDEO_FMT_GRAY;
     portENTER_CRITICAL(&s_mbox_mux);
-    uint8_t *fb = mbox_take(&s_mbox, reader, w, h);
+    uint8_t *fb = mbox_take(&s_mbox, reader, w, h, &f);
     portEXIT_CRITICAL(&s_mbox_mux);
+    *fmt = f == VIDEO_FMT_COLOUR ? VIDEO_FMT_COLOUR : VIDEO_FMT_GRAY;
     return fb;
 }
 
@@ -122,7 +124,7 @@ static void frame_release(const uint8_t *fb)
 #ifdef CONFIG_BRIDGE_SPI_DISPLAY
 void stream_display_attach(void) { s_display = xTaskGetCurrentTaskHandle(); }
 
-const uint8_t *stream_display_take(int *w, int *h) { return frame_take(READER_DISPLAY, w, h); }
+const uint8_t *stream_display_take(int *w, int *h, video_fmt_t *fmt) { return frame_take(READER_DISPLAY, w, h, fmt); }
 
 void stream_display_release(const uint8_t *fb) { frame_release(fb); }
 #endif
@@ -132,6 +134,33 @@ static uint8_t *s_nr;
 static volatile bool s_nr_on;
 static bool s_nr_valid;
 static int s_nr_h;
+static video_fmt_t s_nr_fmt;
+/* Colour: the encoder takes YCbYCr one block (16 rows) at a time from an
+ * internal-RAM band built from the frame's planes, so no YCbYCr frame is
+ * written to and read back from PSRAM (the decoder's own PSRAM writes slow
+ * down with every byte moved on the PSRAM bus). */
+static uint8_t *s_band;
+static int s_band_bytes;
+
+/* Rows y0 .. y0 + rows - 1 of a colour frame's planes (video.h) as YCbYCr:
+ * chroma sample k covers pixels 5k .. 5k + 4, one chroma row two rows. */
+static void planes_band(uint8_t *dst, const uint8_t *src, int y0, int rows)
+{
+    static uint8_t kp[VIDEO_W / 2];   /* chroma sample of each pixel pair */
+    _Static_assert(VIDEO_W == 5 * VIDEO_CW, "5 pixels per chroma sample");
+    if (!kp[VIDEO_W / 2 - 1])
+        for (int p = 0; p < VIDEO_W / 2; p++) kp[p] = (uint8_t)((2 * p + 1) / 5);
+    uint8_t y[VIDEO_W], c[VIDEO_CHROMA_ROW];
+    uint32_t *row = (uint32_t *)dst;
+    for (int r = y0; r < y0 + rows; r++, row += VIDEO_W / 2) {
+        memcpy(y, src + (size_t)r * VIDEO_W, VIDEO_W);
+        if (r == y0 || !(r & 1)) memcpy(c, src + VIDEO_CHROMA_OFF + (size_t)(r / 2) * VIDEO_CHROMA_ROW, sizeof c);
+        for (int p = 0; p < VIDEO_W / 2; p++) {
+            const int k = kp[p];
+            row[p] = (uint32_t)y[2 * p] | (uint32_t)c[k] << 8 | (uint32_t)y[2 * p + 1] << 16 | (uint32_t)c[VIDEO_CW + k] << 24;
+        }
+    }
+}
 
 void stream_set_denoise(bool on)
 {
@@ -146,21 +175,25 @@ static void encoder_task(void *arg)
     (void)arg;
     jpeg_enc_handle_t enc = NULL;
     int enc_w = 0, enc_h = 0;
+    video_fmt_t enc_fmt = VIDEO_FMT_GRAY;
     int64_t window = esp_timer_get_time();
     uint32_t count = 0;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         int w, h;
-        uint8_t *fb = frame_take(READER_JPEG, &w, &h);
+        video_fmt_t fmt;
+        uint8_t *fb = frame_take(READER_JPEG, &w, &h, &fmt);
         if (!fb) continue;
-        if (!enc || enc_w != w || enc_h != h) {
+        if (!enc || enc_w != w || enc_h != h || enc_fmt != fmt) {
             if (enc) jpeg_enc_close(enc);
             enc = NULL;
             jpeg_enc_config_t cfg = DEFAULT_JPEG_ENC_CONFIG();
             cfg.width = w;
             cfg.height = h;
-            cfg.src_type = JPEG_PIXEL_FORMAT_GRAY;
-            cfg.subsampling = JPEG_SUBSAMPLE_GRAY;
+            /* Colour: YCbYCr in, 4:2:0 out (one chroma row per two rows anyway). */
+            const bool colour = fmt == VIDEO_FMT_COLOUR;
+            cfg.src_type = colour ? JPEG_PIXEL_FORMAT_YCbYCr : JPEG_PIXEL_FORMAT_GRAY;
+            cfg.subsampling = colour ? JPEG_SUBSAMPLE_420 : JPEG_SUBSAMPLE_GRAY;
             cfg.quality = CONFIG_BRIDGE_JPEG_QUALITY;
             if (jpeg_enc_open(&cfg, &enc) != JPEG_ERR_OK) {
                 ESP_LOGE(TAG, "JPEG encoder %dx%d failed to open", w, h);
@@ -170,21 +203,49 @@ static void encoder_task(void *arg)
             }
             enc_w = w;
             enc_h = h;
+            enc_fmt = fmt;
+            const int block = colour ? jpeg_enc_get_block_size(enc) : 0;
+            if (block > s_band_bytes) {
+                heap_caps_free(s_band);
+                s_band = heap_caps_aligned_alloc(16, (size_t)block, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+                if (!s_band) s_band = heap_caps_aligned_alloc(16, (size_t)block, MALLOC_CAP_SPIRAM);
+                s_band_bytes = s_band ? block : 0;
+            }
+            if (colour && (!s_band || block % (2 * VIDEO_W))) {
+                ESP_LOGE(TAG, "JPEG block of %d bytes: no colour encoding", block);
+                jpeg_enc_close(enc);
+                enc = NULL;
+                frame_release(fb);
+                continue;
+            }
         }
         const uint8_t *src = fb;
         if (s_nr && s_nr_on) {
             /* Temporal denoise here, on core 0: the result (s_nr) is what
              * gets encoded, and the decoder's frame is free right after. */
-            const bool first = !s_nr_valid || s_nr_h != h;
+            const bool first = !s_nr_valid || s_nr_h != h || s_nr_fmt != fmt;
             denoise_frame(s_nr, fb, w, h, first);
+            if (fmt == VIDEO_FMT_COLOUR)
+                denoise_frame(s_nr + VIDEO_CHROMA_OFF, fb + VIDEO_CHROMA_OFF, VIDEO_CHROMA_ROW, h / 2, first);
             s_nr_valid = true;
             s_nr_h = h;
+            s_nr_fmt = fmt;
             src = s_nr;
             frame_release(fb);
             fb = NULL;
         }
         int out_len = 0;
-        jpeg_error_t err = jpeg_enc_process(enc, src, w * h, s_spare, JPEG_MAX, &out_len);
+        jpeg_error_t err = JPEG_ERR_FAIL;
+        if (fmt == VIDEO_FMT_COLOUR) {
+            const int block = jpeg_enc_get_block_size(enc), rows = block / (2 * VIDEO_W);
+            for (int y0 = 0; y0 < h; y0 += rows) {
+                planes_band(s_band, src, y0, rows);
+                err = jpeg_enc_process_with_block(enc, s_band, block, s_spare, JPEG_MAX, &out_len);
+                if (err < JPEG_ERR_OK) break;
+            }
+        } else {
+            err = jpeg_enc_process(enc, src, w * h, s_spare, JPEG_MAX, &out_len);
+        }
         if (fb) frame_release(fb);
         if (err != JPEG_ERR_OK || out_len <= 0) continue;
 
@@ -665,8 +726,9 @@ esp_err_t stream_start(uint8_t *const *frames)
     s_jpeg = alloc_big(JPEG_MAX);
     s_spare = alloc_big(JPEG_MAX);
     /* The denoised picture is the JPEG input: 16-byte aligned for the encoder. */
-    s_nr = heap_caps_aligned_calloc(16, 1, DENOISE_W_MAX * 288, MALLOC_CAP_SPIRAM);
-    if (!s_nr) s_nr = heap_caps_aligned_calloc(16, 1, DENOISE_W_MAX * 288, MALLOC_CAP_8BIT);
+    const size_t frame = VIDEO_W * VIDEO_H_MAX * VIDEO_BPP_MAX;   /* gray, or colour planes */
+    s_nr = heap_caps_aligned_calloc(16, 1, frame, MALLOC_CAP_SPIRAM);
+    if (!s_nr) s_nr = heap_caps_aligned_calloc(16, 1, frame, MALLOC_CAP_8BIT);
     s_nr_on = s_nr != NULL;   /* on by default */
     if (!s_lock || !s_notify_lock || !s_jpeg || !s_spare) return ESP_ERR_NO_MEM;
     /* Low priority on core 0: encoding a noisy picture takes longer than a

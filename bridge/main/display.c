@@ -5,6 +5,7 @@
  * (stream.c, mbox.h) as the JPEG encoder does, so neither the decoder nor
  * the encoder ever waits for the screen, and the decoder does not render
  * into the frame while it is read. Gray goes to RGB565 through a table,
+ * colour (luma and chroma planes) through JFIF YCbCr-to-RGB tables,
  * STRIP_LINES lines at a time into two internal-RAM DMA buffers: one strip
  * is converted while the other goes out. The screen is one 320x240 window
  * per frame; the first strip starts it (RAMWR), the others continue it
@@ -21,6 +22,7 @@
  * 30 fps stream: the task mostly waits for the SPI DMA; converting should
  * cost core 0 about 2 ms per frame (estimated, not measured yet). */
 #include "display.h"
+#include <math.h>
 #include <stdbool.h>
 #include <string.h>
 #include "bridge.h"
@@ -92,6 +94,8 @@ static esp_lcd_panel_io_handle_t s_io;
 static esp_lcd_panel_handle_t s_panel;
 static uint16_t *s_strip[2];
 static uint16_t s_gray[256];   /* gray level -> panel RGB565 */
+static int16_t s_r_cr[256], s_g_cb[256], s_g_cr[256], s_b_cb[256];   /* YCbCr -> RGB, added to Y */
+static uint8_t s_clip[768];    /* value + 256 -> 0..255 */
 static float s_fps;
 
 float display_fps(void) { return s_fps; }
@@ -144,8 +148,25 @@ static void draw_badge(uint16_t *strip, int y0)
 
 /* Screen rows y0 .. y0 + STRIP_LINES - 1 from a frame of h rows (PSRAM).
  * PAL: row y shows frame row y * 288 / 240, which leaves out every 6th. */
-static void convert(uint16_t *strip, const uint8_t *fb, int h, int y0)
+static void convert(uint16_t *strip, const uint8_t *fb, int h, video_fmt_t fmt, int y0)
 {
+    if (fmt == VIDEO_FMT_COLOUR) {
+        for (int r = 0; r < STRIP_LINES; r++) {
+            const int fy = (y0 + r) * h / LCD_H;
+            const uint16_t *src = (const uint16_t *)(fb + (size_t)fy * LCD_W);
+            const uint8_t *c = fb + VIDEO_CHROMA_OFF + (size_t)(fy / 2) * VIDEO_CHROMA_ROW;
+            uint32_t *dst = (uint32_t *)(strip + r * LCD_W);
+            for (int x = 0; x < LCD_W / 2; x++) {
+                const uint32_t p = src[x];   /* two luma pixels */
+                const int k = (2 * x + 1) / 5;   /* chroma sample k covers pixels 5k .. 5k + 4 */
+                const int ya = (int)(p & 0xff) + 256, yb = (int)(p >> 8) + 256, cb = c[k], cr = c[VIDEO_CW + k];
+                const int dr = s_r_cr[cr], dg = s_g_cb[cb] + s_g_cr[cr], db = s_b_cb[cb];
+                dst[x] = PANEL565(s_clip[ya + dr], s_clip[ya + dg], s_clip[ya + db]) |
+                         (uint32_t)PANEL565(s_clip[yb + dr], s_clip[yb + dg], s_clip[yb + db]) << 16;
+            }
+        }
+        return;
+    }
     for (int r = 0; r < STRIP_LINES; r++) {
         const uint32_t *src = (const uint32_t *)(fb + (size_t)((y0 + r) * h / LCD_H) * LCD_W);
         uint32_t *dst = (uint32_t *)(strip + r * LCD_W);
@@ -158,7 +179,7 @@ static void convert(uint16_t *strip, const uint8_t *fb, int h, int y0)
 }
 
 /* Sends a frame of h rows (NULL: black) to the whole screen. */
-static void draw(const uint8_t *fb, int h, bool badge)
+static void draw(const uint8_t *fb, int h, video_fmt_t fmt, bool badge)
 {
     static bool failed;
     esp_err_t err = esp_lcd_panel_io_tx_param(s_io, LCD_CMD_CASET, (uint8_t[]){0, 0, (LCD_W - 1) >> 8, (LCD_W - 1) & 0xff}, 4);
@@ -166,7 +187,7 @@ static void draw(const uint8_t *fb, int h, bool badge)
         err = esp_lcd_panel_io_tx_param(s_io, LCD_CMD_RASET, (uint8_t[]){0, 0, (LCD_H - 1) >> 8, (LCD_H - 1) & 0xff}, 4);
     for (int k = 0; k < LCD_H / STRIP_LINES && err == ESP_OK; k++) {
         uint16_t *strip = s_strip[k & 1];
-        if (fb) convert(strip, fb, h, k * STRIP_LINES);
+        if (fb) convert(strip, fb, h, fmt, k * STRIP_LINES);
         else memset(strip, 0, STRIP_BYTES);
         if (badge) draw_badge(strip, k * STRIP_LINES);
         err = esp_lcd_panel_io_tx_color(s_io, k ? LCD_CMD_RAMWRC : LCD_CMD_RAMWR, strip, STRIP_BYTES);
@@ -217,7 +238,7 @@ static bool panel_setup(void)
     if (err == ESP_OK) err = esp_lcd_panel_invert_color(s_panel, invert);
     if (err == ESP_OK) err = esp_lcd_panel_swap_xy(s_panel, true);
     if (err == ESP_OK) err = esp_lcd_panel_mirror(s_panel, mirror_x, mirror_y);
-    if (err == ESP_OK) draw(NULL, LCD_H, false);   /* black, not the panel's power-up noise */
+    if (err == ESP_OK) draw(NULL, LCD_H, VIDEO_FMT_GRAY, false);   /* black, not the panel's power-up noise */
     if (err == ESP_OK) err = esp_lcd_panel_disp_on_off(s_panel, true);
     if (err != ESP_OK) ESP_LOGE(TAG, "panel setup failed: %s", esp_err_to_name(err));
     return err == ESP_OK;
@@ -237,18 +258,19 @@ static void display_task(void *arg)
     for (;;) {
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(250));
         int w = 0, h = 0;
-        const uint8_t *fb = stream_display_take(&w, &h);
+        video_fmt_t fmt = VIDEO_FMT_GRAY;
+        const uint8_t *fb = stream_display_take(&w, &h, &fmt);
         const int64_t now = esp_timer_get_time();
         if (fb) {
             if (w == LCD_W && h > 0 && h <= VIDEO_H_MAX) {
-                draw(fb, h, !bridge_locked());
+                draw(fb, h, fmt, !bridge_locked());
                 count++;
             }
             stream_display_release(fb);
             last_frame = now;
             blank = false;
         } else if (!blank && now - last_frame > 1000000) {
-            draw(NULL, LCD_H, true);   /* no frames: capture stopped */
+            draw(NULL, LCD_H, VIDEO_FMT_GRAY, true);   /* no frames: capture stopped */
             blank = true;
         }
         if (now - window >= 1000000) {
@@ -265,7 +287,14 @@ esp_err_t display_start(void)
         s_strip[i] = heap_caps_malloc(STRIP_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
         if (!s_strip[i]) return ESP_ERR_NO_MEM;
     }
-    for (int g = 0; g < 256; g++) s_gray[g] = PANEL565(g, g, g);
+    for (int g = 0; g < 256; g++) {
+        s_gray[g] = PANEL565(g, g, g);
+        s_r_cr[g] = (int16_t)lroundf(1.402f * (g - 128));
+        s_g_cb[g] = (int16_t)lroundf(-0.344136f * (g - 128));
+        s_g_cr[g] = (int16_t)lroundf(-0.714136f * (g - 128));
+        s_b_cb[g] = (int16_t)lroundf(1.772f * (g - 128));
+    }
+    for (int k = 0; k < 768; k++) s_clip[k] = (uint8_t)(k < 256 ? 0 : k > 511 ? 255 : k - 256);
     const spi_bus_config_t bus = {
         .sclk_io_num = CONFIG_BRIDGE_DISPLAY_GPIO_SCK,
         .mosi_io_num = CONFIG_BRIDGE_DISPLAY_GPIO_MOSI,

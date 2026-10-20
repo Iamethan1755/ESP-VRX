@@ -98,6 +98,15 @@ menu "VRX Bridge"
         range 10 100
         default 60
 
+    config BRIDGE_COLOUR
+        bool "Colour (NTSC) at boot"
+        default y
+        help
+            Decode the NTSC colour burst and chroma: fields with a burst come
+            out in colour (YCbYCr, JPEG 4:2:0), the others in gray. The
+            console's m key and the page's Colour button switch it at run time.
+            See docs/colour-study.md.
+
     config BRIDGE_TEST_PATTERN_AT_BOOT
         bool "Start with the NTSC test pattern instead of the C5 input"
         default n

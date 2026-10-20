@@ -25,7 +25,7 @@ typedef struct {
     uint8_t refs[MBOX_FRAMES_MAX];   /* 1 while published, +1 per reader holding it */
     int frames, readers;
     uint8_t *ready;                  /* the published frame, NULL when none */
-    int ready_w, ready_h;
+    int ready_w, ready_h, ready_fmt;
     unsigned unread;                 /* readers (bit per reader) that have not taken `ready` */
 } mbox_t;
 
@@ -34,8 +34,9 @@ void mbox_init(mbox_t *m, uint8_t *const *frames, int readers);
 /* Decoder: publishes the finished frame `fb` and returns the buffer to
  * render the next frame into. Before mbox_init it returns `fb` (the frame
  * is dropped: the decoder keeps its buffer). */
-uint8_t *mbox_submit(mbox_t *m, uint8_t *fb, int w, int h);
+uint8_t *mbox_submit(mbox_t *m, uint8_t *fb, int w, int h, int fmt);
 /* Reader `reader` (0 .. readers - 1): the published frame if this reader
- * has not had it yet, else NULL. Hand it back with mbox_release(). */
-uint8_t *mbox_take(mbox_t *m, int reader, int *w, int *h);
+ * has not had it yet, else NULL. Hand it back with mbox_release(). A frame
+ * is w x h pixels in format fmt (video_fmt_t: gray or colour planes). */
+uint8_t *mbox_take(mbox_t *m, int reader, int *w, int *h, int *fmt);
 void mbox_release(mbox_t *m, const uint8_t *fb);

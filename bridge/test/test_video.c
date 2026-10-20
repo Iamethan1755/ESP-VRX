@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Host test: decode the synthetic NTSC/PAL source with the bridge's video
  * decoder and check lock, standard, field rate, alignment and levels;
- * also the frame mailbox between the decoder and its readers.
+ * NTSC colour bars (hue, saturation) also through noise, 5 bits and clock
+ * slips; also the frame mailbox between the decoder and its readers.
  * Build and run: python bridge/test/run_host_tests.py */
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,10 +16,11 @@
 #define RING (1u << 16)
 #define CHUNK 2048u
 
-static uint8_t s_ring[RING];
-static uint8_t s_fb[2][VIDEO_W * VIDEO_H_MAX];
-static uint8_t s_last[VIDEO_W * VIDEO_H_MAX];
-static uint8_t s_acc[VIDEO_W * VIDEO_H_MAX];   /* denoise running picture, as in the encoder */
+static uint8_t s_ring[RING], s_src[RING];
+static uint8_t s_fb[2][VIDEO_W * VIDEO_H_MAX * VIDEO_BPP_MAX];
+static uint8_t s_last[VIDEO_W * VIDEO_H_MAX * VIDEO_BPP_MAX];
+static uint8_t s_acc[VIDEO_W * VIDEO_H_MAX * VIDEO_BPP_MAX];   /* denoise running picture, as in the encoder */
+static video_fmt_t s_last_fmt = VIDEO_FMT_GRAY;
 static bool s_denoise, s_acc_first;
 static bool s_weak;   /* C5-like levels: sync 15, blanking 21, white 40, dark on the left */
 static bool s_five_bit;   /* bit 0 always 0 (keys on the bit 0 wire) */
@@ -26,21 +28,27 @@ static int s_last_h, s_failures;
 static int s_rolled = -1;   /* >= 0: count drawn fields whose first row is not picture */
 
 /* Like the firmware: draw every other field only, keep the drawn ones. */
-static uint8_t *on_field(uint8_t *done, int w, int h, bool rendered, bool *render_next, void *ctx)
+static uint8_t *on_field(uint8_t *done, int w, int h, video_fmt_t fmt, bool rendered, bool *render_next, void *ctx)
 {
     (void)ctx;
     if (rendered) {
         /* Bars on row 0, the ramp on the second-last row: a field that
-         * starts a few lines early or late (vertical roll) misses one. */
+         * starts a few lines early or late (vertical roll) misses one.
+         * Colour frames start with the same luma rows (video.h). */
         if (s_rolled >= 0)
             s_rolled += !(done[20] > 200 && done[(h - 2) * w + w - 20] > done[(h - 2) * w + 20] + 150);
+        const size_t n = fmt == VIDEO_FMT_COLOUR ? VIDEO_CHROMA_OFF + (size_t)(h / 2) * VIDEO_CHROMA_ROW : (size_t)(w * h);
         if (s_denoise) {
-            denoise_frame(s_acc, done, w, h, s_acc_first);
+            const bool first = s_acc_first || fmt != s_last_fmt;
+            denoise_frame(s_acc, done, w, h, first);
+            if (fmt == VIDEO_FMT_COLOUR)
+                denoise_frame(s_acc + VIDEO_CHROMA_OFF, done + VIDEO_CHROMA_OFF, VIDEO_CHROMA_ROW, h / 2, first);
             s_acc_first = false;
-            memcpy(s_last, s_acc, (size_t)(w * h));
+            memcpy(s_last, s_acc, n);
         } else {
-            memcpy(s_last, done, (size_t)(w * h));
+            memcpy(s_last, done, n);
         }
+        s_last_fmt = fmt;
         s_last_h = h;
     }
     *render_next = !rendered;
@@ -50,6 +58,11 @@ static uint8_t *on_field(uint8_t *done, int w, int h, bool rendered, bool *rende
 #define CHECK(cond, ...) do { if (!(cond)) { printf("  FAIL: " __VA_ARGS__); printf("\n"); s_failures++; } } while (0)
 
 static int px(int x, int y) { return s_last[y * VIDEO_W + x]; }
+/* Cb (k = 1) or Cr (k = 3) of pixel x in a colour frame (video.h). */
+static int pxc(int x, int y, int k)
+{
+    return s_last[VIDEO_CHROMA_OFF + (y / 2) * VIDEO_CHROMA_ROW + (k == 3 ? VIDEO_CW : 0) + x * VIDEO_CW / VIDEO_W];
+}
 /* Mean of three neighbours on a row: the geometry checks below must not
  * trip over single noisy pixels (noise is measured by quality()). */
 static int pxa(int x, int y)
@@ -58,14 +71,28 @@ static int pxa(int x, int y)
     return (px(l, y) + px(x, y) + px(r, y) + 1) / 3;
 }
 
+static uint8_t clamp255(double v) { return (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : (int)(v + 0.5)); }
+
+/* The last frame as PGM, or PPM (JFIF YCbCr to RGB) for colour. */
 static void save_pgm(const char *name)
 {
     char path[256];
-    snprintf(path, sizeof path, "test_out_%s.pgm", name);
+    const bool colour = s_last_fmt == VIDEO_FMT_COLOUR;
+    snprintf(path, sizeof path, "test_out_%s.%s", name, colour ? "ppm" : "pgm");
     FILE *f = fopen(path, "wb");
     if (!f) return;
-    fprintf(f, "P5\n%d %d\n255\n", VIDEO_W, s_last_h);
-    fwrite(s_last, 1, (size_t)(VIDEO_W * s_last_h), f);
+    fprintf(f, "%s\n%d %d\n255\n", colour ? "P6" : "P5", VIDEO_W, s_last_h);
+    if (!colour) {
+        fwrite(s_last, 1, (size_t)(VIDEO_W * s_last_h), f);
+    } else {
+        for (int y = 0; y < s_last_h; y++)
+            for (int x = 0; x < VIDEO_W; x++) {
+                const double l = px(x, y), cb = pxc(x, y, 1) - 128, cr = pxc(x, y, 3) - 128;
+                const uint8_t rgb[3] = {clamp255(l + 1.402 * cr), clamp255(l - 0.344136 * cb - 0.714136 * cr),
+                                        clamp255(l + 1.772 * cb)};
+                fwrite(rgb, 1, 3, f);
+            }
+    }
     fclose(f);
 }
 
@@ -262,6 +289,145 @@ static void scenario(const char *name, uint32_t fs, bool pal, int noise)
     scenario_full(name, fs, pal, noise, 0, VIDEO_FILTER_MEDIAN, false, NULL, NULL);
 }
 
+/* ---- Colour --------------------------------------------------------------- */
+
+/* Like run(), but the decoder's ring gets the source with one sample taken
+ * twice every `every` samples (the S3 clock faster than the C5's): s_src is
+ * the test pattern's ring, s_wr the decoder's write position. */
+static uint32_t s_wr, s_rd;
+static void run_slips(testpattern_t *tp, video_t *v, double seconds, int every)
+{
+    const uint32_t end = s_wr + (uint32_t)(seconds * tp->fs_hz);
+    while ((int32_t)(end - s_wr) > 0) {
+        testpattern_run_until(tp, s_rd + CHUNK + 1);
+        for (uint32_t k = 0; k < CHUNK; k++) {
+            s_ring[s_wr & (RING - 1)] = s_src[s_rd & (RING - 1)];
+            s_wr++;
+            if (s_wr % (uint32_t)every) s_rd++;
+        }
+        video_process(v, s_wr);
+    }
+}
+
+/* Colour bars (testpattern.c: white, yellow, cyan, green, magenta, red,
+ * blue, black at 75 %) against JFIF Cb/Cr of the same RGB, averaged over
+ * rows 5..35 and the middle half of each bar: hue within max_deg, the
+ * chroma amplitude within sat_tol of the expected one, gray bars gray. */
+static void check_colour(const char *name, double max_deg, double sat_tol)
+{
+    static const int rgb[8] = {7, 6, 3, 2, 5, 4, 1, 0};
+    CHECK(s_last_fmt == VIDEO_FMT_COLOUR, "%s: frame is not colour", name);
+    if (s_last_fmt != VIDEO_FMT_COLOUR) return;
+    const double us0 = 9.6, width = 52.2, x0 = 9.4, xl = 52.6;
+    for (int bar = 0; bar < 8; bar++) {
+        const double c = (x0 + xl * (bar + 0.5) / 8 - us0) / width * VIDEO_W, hw = VIDEO_W / 8.0 / 4;
+        double cb = 0, cr = 0;
+        int n = 0;
+        for (int y = 5; y < 36; y++)
+            for (int x = (int)(c - hw); x <= (int)(c + hw); x++, n++) {
+                cb += pxc(x, y, 1) - 128;
+                cr += pxc(x, y, 3) - 128;
+            }
+        cb /= n;
+        cr /= n;
+        const double r = rgb[bar] & 4 ? 0.75 : 0, g = rgb[bar] & 2 ? 0.75 : 0, b = rgb[bar] & 1 ? 0.75 : 0;
+        const double wb = 255 * (-0.168736 * r - 0.331264 * g + 0.5 * b), wr = 255 * (0.5 * r - 0.418688 * g - 0.081312 * b);
+        const double got_amp = hypot(cb, cr), want_amp = hypot(wb, wr);
+        if (want_amp < 1) {
+            printf("  bar %d: Cb %+.1f Cr %+.1f (gray)\n", bar, cb, cr);
+            CHECK(got_amp < 12, "%s: gray bar %d has colour (Cb %+.1f, Cr %+.1f)", name, bar, cb, cr);
+            continue;
+        }
+        double dh = (atan2(cr, cb) - atan2(wr, wb)) * 180 / 3.141592653589793;
+        while (dh > 180) dh -= 360;
+        while (dh < -180) dh += 360;
+        printf("  bar %d: Cb %+.1f Cr %+.1f, want %+.1f %+.1f: hue %+.1f deg, saturation x%.2f\n", bar, cb, cr, wb, wr,
+               dh, got_amp / want_amp);
+        CHECK(fabs(dh) <= max_deg, "%s: bar %d hue off by %.1f deg", name, bar, dh);
+        CHECK(fabs(got_amp / want_amp - 1) <= sat_tol, "%s: bar %d saturation x%.2f", name, bar, got_amp / want_amp);
+    }
+}
+
+/* NTSC colour bars through the decoder with colour on, standard levels
+ * (black at blanking, so the expected Cb/Cr are exact). slip_every > 0
+ * duplicates a sample that often (the board: every ~530000 at 20 MS/s). */
+static void scenario_colour(const char *name, uint32_t fs, int noise, int clicks, int slip_every, double max_deg,
+                            double sat_tol)
+{
+    printf("%s\n", name);
+    testpattern_t tp;
+    video_t v;
+    uint8_t *ring = slip_every ? s_src : s_ring;
+    const bool ok = (s_weak ? testpattern_init_levels(&tp, ring, RING, fs, false, 15, 21, 40, false)
+                            : testpattern_init(&tp, ring, RING, fs, false)) && testpattern_set_colour(&tp, true);
+    if (!ok) {
+        printf("  FAIL: no memory\n");
+        s_failures++;
+        return;
+    }
+    tp.noise = noise;
+    tp.clicks = clicks;
+    tp.five_bit = s_five_bit;
+    testpattern_restart(&tp, 123456u);
+    tp.line = 100;
+    s_wr = s_rd = tp.pos;
+    video_init(&v, s_ring, RING, fs, s_fb[0], on_field, NULL);
+    video_reset(&v, tp.pos);
+    video_set_levels(&v, VIDEO_LEVELS_SYNC);
+    video_set_colour(&v, true);
+    s_denoise = false;
+    if (slip_every) run_slips(&tp, &v, 2.0, slip_every);
+    else run(&tp, &v, 2.0, true);
+    video_stats_t st;
+    video_get_stats(&v, &st);
+    const double want_burst = 0.2 * (s_weak ? 40 - 21 : TP_WHITE - TP_BLANK);
+    const uint32_t want_slips = slip_every ? (uint32_t)(2.0 * fs / slip_every) : 0;
+    printf("  locked h=%d v=%d colour=%d shown=%d burst=%.2f (want %.2f) slips=%u sum=%d (want ~%u) overruns=%u\n",
+           st.h_locked, st.v_locked, st.colour, st.colour_shown, st.burst_level, want_burst, st.slips, (int)st.slip_sum,
+           want_slips, st.overruns);
+    CHECK(st.h_locked && st.v_locked, "%s: not locked", name);
+    CHECK(st.colour_shown, "%s: no colour", name);
+    CHECK(fabs(st.burst_level - want_burst) < 0.15 * want_burst, "%s: burst %.2f, want %.2f", name, st.burst_level, want_burst);
+    CHECK(st.overruns == 0 && st.lock_losses == 0, "%s: %u overruns, %u lock losses", name, st.overruns, st.lock_losses);
+    if (slip_every) {
+        /* Each slip counted once (a few may hide in the vertical interval). */
+        CHECK(st.slips * 100 >= want_slips * 97 && st.slips * 100 <= want_slips * 101 + 200, "%s: %u slips counted, %u made",
+              name, st.slips, want_slips);
+        CHECK(abs((int)st.slip_sum - (int)want_slips) * 100 <= (int)want_slips * 3 + 200,
+              "%s: %d duplicated minus dropped samples counted, %u made", name, (int)st.slip_sum, want_slips);
+    } else {
+        CHECK(st.slips <= 1, "%s: %u slips without any", name, st.slips);
+    }
+    check_colour(name, max_deg, sat_tol);
+    save_pgm(name);
+    testpattern_free(&tp);
+}
+
+/* Colour on but nothing to show in colour: PAL, or NTSC without a burst. */
+static void scenario_no_colour(const char *name, bool pal)
+{
+    printf("%s\n", name);
+    testpattern_t tp;
+    video_t v;
+    if (!testpattern_init(&tp, s_ring, RING, 20000000, pal)) {
+        printf("  FAIL: no memory\n");
+        s_failures++;
+        return;
+    }
+    testpattern_restart(&tp, 123456u);
+    video_init(&v, s_ring, RING, 20000000, s_fb[0], on_field, NULL);
+    video_reset(&v, tp.pos);
+    video_set_colour(&v, true);
+    run(&tp, &v, 1.0, true);
+    video_stats_t st;
+    video_get_stats(&v, &st);
+    printf("  locked h=%d v=%d shown=%d burst=%.2f frame %s\n", st.h_locked, st.v_locked, st.colour_shown, st.burst_level,
+           s_last_fmt == VIDEO_FMT_GRAY ? "gray" : "colour");
+    CHECK(st.h_locked && st.v_locked && !st.colour_shown && s_last_fmt == VIDEO_FMT_GRAY, "%s: colour without a burst", name);
+    if (s_last_fmt == VIDEO_FMT_GRAY) check_picture(&tp, name);
+    testpattern_free(&tp);
+}
+
 static void check_med3(void)
 {
     int bad = 0;
@@ -335,7 +501,7 @@ static void check_mailbox(void)
             const unsigned op = rng >> 16 & 7;
             if (op < 3) {
                 set_stamp(dec, ++seq);
-                uint8_t *next = mbox_submit(&m, dec, VIDEO_W, 240);
+                uint8_t *next = mbox_submit(&m, dec, VIDEO_W, 240, VIDEO_FMT_GRAY);
                 bad += next == dec || next == m.ready;
                 for (int r = 0; r < readers; r++) bad += next == held[r];
                 dec = next;
@@ -361,11 +527,11 @@ static void check_mailbox(void)
                 }
                 continue;
             }
-            int w = 0, h = 0;
-            held[r] = mbox_take(&m, r, &w, &h);
+            int w = 0, h = 0, fmt = 0;
+            held[r] = mbox_take(&m, r, &w, &h, &fmt);
             if (held[r]) {
                 held_stamp[r] = stamp(held[r]);
-                bad += held_stamp[r] != seq || seq == had[r] || w != VIDEO_W || h != 240;
+                bad += held_stamp[r] != seq || seq == had[r] || w != VIDEO_W || h != 240 || fmt != VIDEO_FMT_GRAY;
                 had[r] = seq;
                 reads++;
             } else {
@@ -428,6 +594,22 @@ int main(void)
     scenario("ntsc_20mhz_5bit", 20000000, false, 0);
     s_five_bit = false;
     s_weak = false;
+
+    /* Colour: clean, noisy, at 10 MS/s, with the board's weak levels, 5
+     * bits and FM clicks, and with the board's clock slips (one sample
+     * twice every 26.6 ms) and ten times more of them. */
+    scenario_colour("ntsc_20mhz_colour", 20000000, 0, 0, 0, 5, 0.12);
+    scenario_colour("ntsc_20mhz_colour_noise3", 20000000, 3, 0, 0, 6, 0.15);
+    scenario_colour("ntsc_10mhz_colour", 10000000, 0, 0, 0, 6, 0.15);
+    s_weak = true;
+    s_five_bit = true;
+    scenario_colour("ntsc_20mhz_colour_weak_5bit", 20000000, 3, 50, 0, 10, 0.25);
+    scenario_colour("ntsc_20mhz_colour_weak_5bit_slips", 20000000, 3, 50, 532000, 10, 0.25);
+    scenario_colour("ntsc_20mhz_colour_weak_5bit_slips10x", 20000000, 3, 50, 53200, 12, 0.25);
+    s_weak = false;
+    s_five_bit = false;
+    scenario_no_colour("pal_20mhz_colour_on", true);
+    scenario_no_colour("ntsc_20mhz_colour_on_no_burst", false);
     printf(s_failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", s_failures);
     return s_failures ? 1 : 0;
 }

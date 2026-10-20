@@ -15,10 +15,14 @@ typedef struct {
     video_stats_t video;
     float sample_msps;        /* measured input rate */
     float decode_load;        /* share of core 1 spent decoding */
+    float slip_rate;          /* colour: S3/C5 clock slips per second (> 0: duplicated samples) */
+    float clock_ppm;          /* the S3 clock against the C5's from the slips (> 0: the S3 runs fast) */
     uint32_t max_pass_us;     /* longest decode pass in the last 0.5 s */
     uint32_t max_gap_us;      /* longest wait between decode passes in the last 0.5 s */
     uint32_t max_line_us;     /* slowest single line in the last 0.5 s */
     uint32_t max_line_kind;   /* 1 rendered, 2 field start, 4 unlocked search */
+    float drawn_line_us;      /* mean decoder time per line in drawn fields (a line lasts 63.6 us) */
+    float skipped_line_us;    /* ... in fields that are not drawn */
     float fps;                /* JPEG frames per second */
     uint32_t jpeg_bytes;
     uint32_t jpeg_frames;
@@ -33,6 +37,7 @@ typedef struct {
 /* Shared commands, applied by the decoder task:
  *   t  next source (C5 input, NTSC test pattern, PAL test pattern)
  *   c  levels: auto contrast / standard sync-referenced levels
+ *   m  colour on / off
  *   j l  picture left / right (0.2 us)
  *   i k  picture up / down (1 line)
  * Returns false for anything else. */

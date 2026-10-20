@@ -2,7 +2,7 @@
 """Build and run the bridge's host tests with Zig's C compiler (pip install ziglang).
 
 Usage: python bridge/test/run_host_tests.py
-Writes test_out_*.pgm frames and converts them to PNG next to this script.
+Writes test_out_*.pgm / .ppm frames and converts them to PNG next to this script.
 """
 import pathlib
 import struct
@@ -15,16 +15,18 @@ MAIN = HERE.parent / "main"
 
 
 def pgm_to_png(pgm: pathlib.Path) -> pathlib.Path:
+    """PGM (P5, gray) or PPM (P6, RGB) to PNG."""
     data = pgm.read_bytes()
     parts = data.split(b"\n", 3)
     w, h = (int(v) for v in parts[1].split())
     pixels = parts[3]
-    rows = b"".join(b"\x00" + pixels[y * w:(y + 1) * w] for y in range(h))
+    n = 3 if parts[0] == b"P6" else 1
+    rows = b"".join(b"\x00" + pixels[y * w * n:(y + 1) * w * n] for y in range(h))
 
     def chunk(kind: bytes, body: bytes) -> bytes:
         return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
 
-    png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0))
+    png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2 if n == 3 else 0, 0, 0, 0))
            + chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b""))
     out = pgm.with_suffix(".png")
     out.write_bytes(png)
@@ -40,7 +42,7 @@ def main() -> int:
     if subprocess.call(cmd) != 0:
         return 1
     rc = subprocess.call([str(exe)], cwd=HERE)
-    for pgm in sorted(HERE.glob("test_out_*.pgm")):
+    for pgm in sorted([*HERE.glob("test_out_*.pgm"), *HERE.glob("test_out_*.ppm")]):
         pgm_to_png(pgm)
         pgm.unlink()
     return rc

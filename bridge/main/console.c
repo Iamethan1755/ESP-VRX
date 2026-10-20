@@ -24,6 +24,7 @@ static const char *HELP =
     "  s  status            t  next source (C5 / NTSC test / PAL test)\n"
     "  c  levels auto/std   j l  picture left/right   i k  picture up/down\n"
     "  f  despeckle median/smooth                     d  denoise on/off\n"
+    "  m  colour on/off (NTSC)\n"
     "  R  raw sample dump   F  current JPEG frame     L  loopback self-test\n"
     "  w  Wi-Fi details     G  capture diagnostics    h  this help\n"
     "  C<k>  send receiver key k to the C5 (c channel, b band, s scan, o menu,\n"
@@ -64,14 +65,18 @@ static void print_status(void)
     snprintf(lcd, sizeof lcd, " lcd_fps=%.1f", display_fps());
 #endif
     printf("STATUS source=%s capture=%s h_lock=%d v_lock=%d std=%s lines/field=%d line_us=%.3f "
-           "sync=%.1f blank=%.1f map=%.1f..%.1f levels=%s filter=%s denoise=%d fields=%lu overruns=%lu lock_losses=%lu "
-           "h_offset=%.1fus v_offset=%d rate=%.2fMS/s load=%.0f%% pass_max=%luus gap_max=%luus line_max=%luus(kind %lu) fps=%.1f%s jpeg=%lu clients=%d wifi=" CONFIG_BRIDGE_WIFI_SSID " stations=%d "
+           "sync=%.1f blank=%.1f map=%.1f..%.1f levels=%s filter=%s denoise=%d colour=%s burst=%.2f slips=%lu clock=%+.2fppm "
+           "fields=%lu overruns=%lu lock_losses=%lu "
+           "h_offset=%.1fus v_offset=%d rate=%.2fMS/s load=%.0f%% line_us drawn=%.1f skipped=%.1f pass_max=%luus gap_max=%luus line_max=%luus(kind %lu) fps=%.1f%s jpeg=%lu clients=%d wifi=" CONFIG_BRIDGE_WIFI_SSID " stations=%d "
            "heap_int=%lu heap_psram=%lu up=%lus reset=%s\n",
            bridge_source_name(s.source), s.capture_ok ? "ok" : "FAIL", v->h_locked, v->v_locked,
            v->std == VIDEO_STD_PAL ? "PAL" : "NTSC", v->lines_per_field, v->line_us, v->sync_level,
            v->blank_level, v->black_level, v->white_level, v->levels == VIDEO_LEVELS_AUTO ? "auto" : "std",
-           v->filter == VIDEO_FILTER_MEDIAN ? "median" : "smooth", (int)stream_denoise(), (unsigned long)v->fields, (unsigned long)v->overruns, (unsigned long)v->lock_losses,
-           v->h_offset_tenths_us / 10.0, v->v_offset_lines, s.sample_msps, s.decode_load * 100,
+           v->filter == VIDEO_FILTER_MEDIAN ? "median" : "smooth", (int)stream_denoise(),
+           !v->colour ? "off" : !v->colour_shown ? "no-burst" : v->colour_simd ? "on" : "on(no-simd)", v->burst_level, (unsigned long)v->slips, s.clock_ppm,
+           (unsigned long)v->fields, (unsigned long)v->overruns, (unsigned long)v->lock_losses,
+           v->h_offset_tenths_us / 10.0, v->v_offset_lines, s.sample_msps, s.decode_load * 100, s.drawn_line_us,
+           s.skipped_line_us,
            (unsigned long)s.max_pass_us, (unsigned long)s.max_gap_us, (unsigned long)s.max_line_us,
            (unsigned long)s.max_line_kind, s.fps, lcd,
            (unsigned long)s.jpeg_bytes, s.clients, s.stations, (unsigned long)s.heap_internal, (unsigned long)s.heap_psram,

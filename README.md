@@ -10,7 +10,7 @@ picture and streams it to a phone browser (or a PC over USB):
 VTX ))) XIAO ESP32-C5 (C5VRX-5)   --video bits 1..5 on D5..D9--+--> resistor DAC --> goggles (optional)
                                                                  |
                                                                  +--> XIAO ESP32-S3 camera port
-                                                                      --> sync lock --> 320x240 gray
+                                                                      --> sync lock --> 320x240 colour/gray
                                                                       --> JPEG --> Wi-Fi AP --> phone
         C5 D4 <-- band/channel/scan/menu keys (UART, the bit 0 wire) -- S3 D0 <-- phone buttons
 ```
@@ -289,7 +289,8 @@ screen (on iPhone in the native video player). The receiver does not report
 back, so the pickers show the channel last set from the page ("auto" after a
 scan). Everything else is under the gear (Settings): Despeckle (median filter
 against FM clicks; off = `[1 2 1]` smoothing), Denoise (averages still areas
-over frames), Levels (auto contrast / standard levels), Snapshot, picture
+over frames), Levels (auto contrast / standard levels), Colour (NTSC colour
+from the colour burst, or gray: colour runs at ~21 fps, gray at 30), Snapshot, picture
 position (0.2 us / 1 line), the receiver's own menu (Menu, Next, Select,
 Close, Video std), the test pattern and the details (lock, standard, levels,
 sample rate, decode load, fps, frame size, memory, uptime, last start).
@@ -357,15 +358,31 @@ are the longest decode pass, wait and single line of the last 0.5 s (`kind`:
   frames; a measured low-run length was cut short by single FM clicks. One field
   becomes one frame: 320×240 NTSC, 320×288 PAL. Without sync it free-runs,
   like an analog monitor. Only fields that will be encoded are drawn (every
-  other field at 30 fps), pixels go through a per-field level LUT, and the
+  other field at 30 fps), pixels go through a per-field level LUT (in the
+  pixel loop, except on the histogram lines), and the
   project builds with `-O2`: at ESP-IDF's default `-Og` one drawn line took
   longer than a line of video lasts.
+  **Colour** (NTSC, on by default, `m` on the console or the page's Colour
+  button; [docs/colour-study.md](docs/colour-study.md)): the colour burst of
+  every other line is measured against the subcarrier at the absolute sample
+  index and averaged into a phase and amplitude reference; a burst more than
+  35° off is used for its own line only, and a second one off to the same
+  side restarts the average (a clock slip: the S3 samples the C5's 20 MS/s
+  with its own clock and takes a sample twice or drops one every few tens of
+  ms, a 64° step). On the even rows the chroma is summed over 64 blocks of
+  16 samples with the S3's SIMD instructions (checked against C at start,
+  `colour=on(no-simd)` in `s` if not) and rotated by the reference into a
+  Cb/Cr plane next to the unchanged luma rows: the decoder writes no more to
+  PSRAM than for gray. Board, live: 62 µs per drawn line (gray 50), 61 % of
+  core 1, no overruns. PAL and pictures without a burst stay gray.
 - **Stream** (core 0): the decoder hands frames over through three buffers
   (four with the screen, `mbox.c`), newest wins, so the encoder always
   starts on the latest picture and the decoder never waits. Optional temporal denoise (a pixel within ±28 of the
   running picture is averaged into it, a bigger change is taken as motion),
   then grayscale JPEG (`esp_new_jpeg`, quality 60) at up to 30 fps, always the
-  same field parity; MJPEG on port 81 (up to 3 viewers: when all are taken
+  same field parity; colour frames are encoded 4:2:0 from YCbYCr built 16
+  rows at a time in internal RAM (block encoder, no colour frame in PSRAM),
+  ~21 fps with denoise; MJPEG on port 81 (up to 3 viewers: when all are taken
   the oldest makes room, and a viewer that reads nothing for 5 s is closed),
   page and status on port 80. The page closes its stream while it is in the
   background and reconnects after 5 s without data. 2.4 GHz only: 5 GHz Wi-Fi would land on the FPV band. The denoise
@@ -410,7 +427,8 @@ for flying.
 | Banded / scrambled picture | Two data wires swapped: bit order D4->D0 ... D9->D5. |
 | Too dark / washed out | Levels button: *auto* stretches the picture, *std* uses the sync amplitude. |
 | Reception worse with the S3 on | Move the antennas apart, lower `BRIDGE_WIFI_TX_POWER_DBM` (default 13 dBm). |
-| `overruns` climbing in `s` | The decoder falls behind: check `load`, `line_max` (single long lines are fine, the ring holds 3.3 ms) and that `bridge\sdkconfig` has `CONFIG_COMPILER_OPTIMIZATION_PERF=y`. |
+| `overruns` climbing in `s` | The decoder falls behind: check `load`, `line_us drawn` (above ~70 us the 3.3 ms ring runs out during a drawn field; colour live is ~62, gray ~50), `line_max` (single long lines are fine) and that `bridge\sdkconfig` has `CONFIG_COMPILER_OPTIMIZATION_PERF=y`. Colour off (`m`) frees ~12 us per drawn line. |
+| No colour, or colour flickers | `s`: `colour=no-burst` means no colour burst is seen (PAL, a black-and-white camera, or a weak picture: `burst` below 0.5 codes turns colour off, above 0.8 on). `slips` counts the S3/C5 clock slips and `clock` the clock offset they give (~2 ppm on the bench pair). |
 | Several pictures stacked in one frame | False vertical syncs: `lines/field` in `s` should be 262 (NTSC) or 312/313 (PAL). |
 | Picture on the phone stutters | `w` while it plays: `VIEWER` fps well below the `fps` in `s`, or long `send_ms`, means frames do not get out fast enough. Open `http://192.168.4.1/bench` on the phone: the console's `BENCH` line gives the Wi-Fi link's own speed (1 MB of filler). Fast there but slow video: the browser; slow there too: the link (signal, interference). Keep the phone on VRX-Bridge: iOS leaves networks without internet (turn off Auto-Join of the home network while watching). |
 | Receiver buttons do nothing | `u` on the S3 console: it must PASS and report "receiver pull-up seen (line rose in a few us)". Anything else means the receiver is not listening, and the S3 sends no keys: check the D4-D0 wire, that the C5 runs this repo's `receiver/` build (flash it first, then the S3), and that no DAC resistor sits on D4. The C5 console prints `BRIDGE key c` / `BRIDGE channel N` for each key it gets; a channel picked during its start-up calibration is applied when it ends. |

@@ -115,6 +115,7 @@
       <button data-cmd="f" id="btn-filter" title="Median filter removes the white/black speckles (FM clicks)">Despeckle</button>
       <button data-cmd="d" id="btn-denoise" title="Average still areas over frames; moving areas stay sharp">Denoise</button>
       <button data-cmd="c" title="Auto contrast or standard levels">Levels</button>
+      <button data-cmd="m" id="btn-colour" title="Colour from the NTSC colour burst, or gray">Colour</button>
       <button id="snap" title="Open the current frame as a JPEG">Snapshot</button>
     </div>
     <h2 class="section">Picture position</h2>
@@ -441,6 +442,7 @@
     ['Standard', s => `${s.std}, ${s.lines_per_field} lines per field, ${s.line_us.toFixed(2)} µs lines`],
     ['Levels (DAC codes)', s => `sync ${s.sync}, blank ${s.blank}, shown ${s.black}–${s.white} (${s.levels})`],
     ['Picture offset', s => `${s.h_offset_us.toFixed(1)} µs, ${s.v_offset} lines`],
+    ['Colour', s => !s.colour ? 'off' : `${s.colour_shown ? 'shown' : 'no colour burst'}, burst ${(s.burst || 0).toFixed(1)} codes, ${s.slips || 0} clock slips (${(s.clock_ppm || 0) >= 0 ? '+' : ''}${(s.clock_ppm || 0).toFixed(2)} ppm)`],
     ['Input rate / decode load', s => `${s.msps.toFixed(2)} MS/s, ${Math.round(s.load * 100)} %`],
     ['Stream', s => `${s.fps.toFixed(1)} fps, ${(s.jpeg_bytes / 1024).toFixed(1)} KB/frame, ${s.clients} viewer(s), ${s.stations} on Wi-Fi`],
     ['Fields / overruns / lock losses', s => `${s.fields} / ${s.overruns} / ${s.lock_losses}`],
@@ -470,6 +472,9 @@
       bf.classList.toggle('on', s.filter === 'median');
       bd.textContent = s.denoise ? 'Denoise on' : 'Denoise off';
       bd.classList.toggle('on', !!s.denoise);
+      const bc = document.getElementById('btn-colour');
+      bc.textContent = s.colour ? 'Colour on' : 'Colour off';
+      bc.classList.toggle('on', !!s.colour);
     }).catch(() => {
       badge.textContent = 'offline'; badge.className = 'badge bad';
       document.getElementById('ov-left').textContent = 'OFFLINE';

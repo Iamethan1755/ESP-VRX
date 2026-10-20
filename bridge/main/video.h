@@ -2,8 +2,11 @@
 /* Composite video decoder for VRX Bridge.
  *
  * Input: a power-of-two ring of 6-bit composite samples (the C5VRX DAC code,
- * bits 0..5 of each byte) written by DMA or by the test-pattern generator.
- * Output: one grayscale frame per field (VIDEO_W x 240 NTSC / 288 PAL).
+ * bits 0..5 of each byte; bits 6 and 7 must be 0) written by DMA or by the
+ * test-pattern generator.
+ * Output: one frame per field (VIDEO_W x 240 NTSC / 288 PAL), grayscale or,
+ * for NTSC with a colour burst and colour on, luma plus a chroma plane
+ * (docs/colour-study.md).
  *
  * Plain C with no ESP-IDF dependency, so test/test_video.c runs it on a PC. */
 #pragma once
@@ -12,6 +15,22 @@
 
 #define VIDEO_W     320
 #define VIDEO_H_MAX 288
+#define VIDEO_BPP_MAX 2   /* frame buffers hold VIDEO_W x VIDEO_H_MAX x VIDEO_BPP_MAX bytes */
+
+/* Frame formats: gray, or colour as planes: the luma rows exactly as a gray
+ * frame, then at VIDEO_CHROMA_OFF one chroma row per two picture rows (from
+ * the even row): VIDEO_CW Cb bytes, then VIDEO_CW Cr bytes (JFIF, 128 = no
+ * colour). Chroma sample k covers pixels 5k .. 5k + 4. The decoder writes
+ * luma only as wide rows go to PSRAM slowly (board: 640-byte rows cost
+ * 4000 cycles each); the encoder builds YCbYCr from the planes. */
+typedef enum { VIDEO_FMT_GRAY = 1, VIDEO_FMT_COLOUR = 2 } video_fmt_t;
+#define VIDEO_CW 64
+#define VIDEO_CHROMA_OFF (VIDEO_W * VIDEO_H_MAX)
+#define VIDEO_CHROMA_ROW (2 * VIDEO_CW)
+
+/* Colour tables (sizes for 20 MS/s). */
+#define VIDEO_BTAB 48     /* burst window */
+#define VIDEO_CSPAN 1024  /* chroma: VIDEO_CW blocks of 16 samples */
 
 /* Median of three, from min/max only (single instructions on the S3). */
 static inline int video_med3(int a, int b, int c)
@@ -27,12 +46,14 @@ typedef enum { VIDEO_LEVELS_AUTO = 0, VIDEO_LEVELS_SYNC } video_levels_t;
  * [1 2 1] low-pass. */
 typedef enum { VIDEO_FILTER_MEDIAN = 0, VIDEO_FILTER_SMOOTH } video_filter_t;
 
-/* Called when a field is complete; `rendered` is false for a field that was
- * skipped. Return the buffer the next field is rendered into (a different
- * buffer to keep `done`, or `done` to drop it) and set *render_next to
- * false to skip drawing the next field (it would be dropped anyway): the
- * sync is still tracked, only the pixels are not computed. */
-typedef uint8_t *(*video_field_cb_t)(uint8_t *done, int w, int h, bool rendered, bool *render_next, void *ctx);
+/* Called when a field is complete, in format `fmt`; `rendered` is false for
+ * a field that was skipped. Return the buffer the next field is rendered
+ * into (a different buffer to keep `done`, or `done` to drop it) and set
+ * *render_next to false to skip drawing the next field (it would be dropped
+ * anyway): the sync is still tracked, only the pixels are not computed.
+ * Buffers hold VIDEO_W x VIDEO_H_MAX x VIDEO_BPP_MAX bytes. */
+typedef uint8_t *(*video_field_cb_t)(uint8_t *done, int w, int h, video_fmt_t fmt, bool rendered, bool *render_next,
+                                     void *ctx);
 
 typedef struct {
     bool h_locked;            /* line sync tracked */
@@ -52,6 +73,12 @@ typedef struct {
     int v_offset_lines;       /* user picture shift, lines */
     video_levels_t levels;
     video_filter_t filter;
+    bool colour;              /* colour decoding on (user setting) */
+    bool colour_shown;        /* the last field was drawn in colour */
+    bool colour_simd;         /* chroma sums with the S3's SIMD instructions (self-test passed) */
+    float burst_level;        /* colour burst, DAC codes peak (0: none tracked) */
+    uint32_t slips;           /* burst phase steps of about one sample: S3/C5 clock slips */
+    int32_t slip_sum;         /* duplicated minus dropped samples (> 0: the S3 runs fast) */
 } video_stats_t;
 
 typedef struct {
@@ -122,10 +149,45 @@ typedef struct {
     video_levels_t levels;
     video_filter_t filter;
 
+    /* colour (NTSC). The burst and the chroma are summed against cos/sin
+     * tables that start at the burst window and at the first chroma block
+     * (whole samples from the line's sync edge); each table entry is
+     * (cos << 16) + sin at 31 peak, with a zero sum over every block, so flat
+     * luma adds nothing and one 32-bit multiply-add per sample sums both.
+     * The burst reference is kept at the absolute sample index, where NTSC's
+     * line-to-line alternation is gone and only clock drift and slips move
+     * it. */
+    bool colour;              /* user setting */
+    bool colour_field;        /* this field is drawn in colour */
+    int c_burst;              /* burst window start after the sync edge, samples */
+    int c_bblk, c_bblocks;    /* burst sums: blocks of c_bblk samples */
+    int c_cblk;               /* samples per chroma block (VIDEO_CW blocks a line) */
+    int c_coff;               /* first chroma block, samples after the picture start */
+    uint32_t sc_inc;          /* subcarrier phase per sample, 2^32 per cycle */
+    float sc_cos[256];        /* cos of the subcarrier phase's top 8 bits */
+    int32_t btab[VIDEO_BTAB];
+    int8_t ccos[VIDEO_CSPAN] __attribute__((aligned(16)));   /* chroma tables, 31 peak, zero sum per block */
+    int8_t csin[VIDEO_CSPAN] __attribute__((aligned(16)));
+    uint8_t cline[VIDEO_CSPAN + 16] __attribute__((aligned(16)));   /* the line's chroma samples, copied */
+    bool pie;                 /* the S3's SIMD chroma sums passed their self-test (firmware only) */
+    float ref_re, ref_im;     /* burst reference (raw burst-sum units, absolute phase) */
+    float pend_re, pend_im;   /* a burst far off the reference, waiting for a second one */
+    bool have_ref, have_pend;
+    bool pend_back;           /* the waiting burst is behind the reference (a duplicated sample) */
+    float line_re, line_im;   /* the reference this line uses */
+    bool line_ok;             /* it has a usable burst */
+    bool burst_ok;            /* the burst is strong enough for colour (hysteresis) */
+    int burst_clip;           /* burst samples are limited to blanking +- this (FM clicks) */
+    int weak_bursts;          /* lines in a row without a usable burst */
+    float chroma_gain;        /* per field: chroma sums / reference -> luma 0..1 units */
+    uint32_t slips;
+    int32_t slip_sum;
 
     /* stats */
     uint32_t max_line_us;     /* slowest single line since the last read (firmware only) */
     uint32_t max_line_kind;   /* what that line did: 1 rendered, 2 field start, 4 unlocked search */
+    uint32_t drawn_us, drawn_lines;     /* time spent on lines of drawn fields since the last read (firmware only) */
+    uint32_t skipped_us, skipped_lines; /* ... and of fields that are not drawn */
     int lines_per_field;
     uint32_t fields, lines, overruns, lock_losses;
     int h_offset_tenths;
@@ -144,3 +206,5 @@ void video_shift_h(video_t *v, int tenths_us);
 void video_shift_v(video_t *v, int lines);
 void video_set_levels(video_t *v, video_levels_t mode);
 void video_set_filter(video_t *v, video_filter_t filter);
+/* Colour on/off: NTSC fields with a colour burst come out as YCbYCr. */
+void video_set_colour(video_t *v, bool on);
