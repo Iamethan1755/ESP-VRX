@@ -46,6 +46,7 @@ static volatile uint32_t s_seq;
 static volatile int s_clients;
 static float s_fps;
 static uint32_t s_frames;
+static float s_ms_nr, s_ms_conv, s_ms_jpeg;   /* encoder task per frame: denoise, YCbYCr bands, JPEG */
 static esp_netif_t *s_ap_netif;
 
 /* Per-viewer delivery for the console's w: new frames that went out,
@@ -143,21 +144,36 @@ static uint8_t *s_band;
 static int s_band_bytes;
 
 /* Rows y0 .. y0 + rows - 1 of a colour frame's planes (video.h) as YCbYCr:
- * chroma sample k covers pixels 5k .. 5k + 4, one chroma row two rows. */
-static void planes_band(uint8_t *dst, const uint8_t *src, int y0, int rows)
+ * chroma sample k covers pixels 5k .. 5k + 4, one chroma row two rows.
+ * With `nr`, each row is denoised on the way (nr: the running picture), so
+ * every row is read from PSRAM once (a separate denoise pass and a band
+ * pass over its result read each row twice: ~3 ms a frame). */
+static void planes_band(uint8_t *dst, const uint8_t *src, uint8_t *nr, bool first, int y0, int rows)
 {
-    static uint8_t kp[VIDEO_W / 2];   /* chroma sample of each pixel pair */
     _Static_assert(VIDEO_W == 5 * VIDEO_CW, "5 pixels per chroma sample");
-    if (!kp[VIDEO_W / 2 - 1])
-        for (int p = 0; p < VIDEO_W / 2; p++) kp[p] = (uint8_t)((2 * p + 1) / 5);
     uint8_t y[VIDEO_W], c[VIDEO_CHROMA_ROW];
     uint32_t *row = (uint32_t *)dst;
     for (int r = y0; r < y0 + rows; r++, row += VIDEO_W / 2) {
         memcpy(y, src + (size_t)r * VIDEO_W, VIDEO_W);
-        if (r == y0 || !(r & 1)) memcpy(c, src + VIDEO_CHROMA_OFF + (size_t)(r / 2) * VIDEO_CHROMA_ROW, sizeof c);
-        for (int p = 0; p < VIDEO_W / 2; p++) {
-            const int k = kp[p];
-            row[p] = (uint32_t)y[2 * p] | (uint32_t)c[k] << 8 | (uint32_t)y[2 * p + 1] << 16 | (uint32_t)c[VIDEO_CW + k] << 24;
+        if (nr) denoise_row(nr + (size_t)r * VIDEO_W, y, VIDEO_W, first);
+        if (r == y0 || !(r & 1)) {   /* bands start on even rows */
+            const size_t off = VIDEO_CHROMA_OFF + (size_t)(r / 2) * VIDEO_CHROMA_ROW;
+            memcpy(c, src + off, sizeof c);
+            if (nr) denoise_row(nr + off, c, VIDEO_CHROMA_ROW, first);
+        }
+        /* Pair p takes chroma sample (2p + 1) / 5: in every ten pixels (five
+         * pairs) the first two pairs take one sample, the other three the
+         * next. Unrolled per ten pixels (a table lookup per pair cost ~25
+         * cycles a pair). */
+        const uint8_t *yy = y, *cb = c, *cr = c + VIDEO_CW;
+        uint32_t *o = row;
+        for (int m = 0; m < VIDEO_CW / 2; m++, yy += 10, cb += 2, cr += 2, o += 5) {
+            const uint32_t c0 = (uint32_t)cb[0] << 8 | (uint32_t)cr[0] << 24, c1 = (uint32_t)cb[1] << 8 | (uint32_t)cr[1] << 24;
+            o[0] = yy[0] | (uint32_t)yy[1] << 16 | c0;
+            o[1] = yy[2] | (uint32_t)yy[3] << 16 | c0;
+            o[2] = yy[4] | (uint32_t)yy[5] << 16 | c1;
+            o[3] = yy[6] | (uint32_t)yy[7] << 16 | c1;
+            o[4] = yy[8] | (uint32_t)yy[9] << 16 | c1;
         }
     }
 }
@@ -176,7 +192,7 @@ static void encoder_task(void *arg)
     jpeg_enc_handle_t enc = NULL;
     int enc_w = 0, enc_h = 0;
     video_fmt_t enc_fmt = VIDEO_FMT_GRAY;
-    int64_t window = esp_timer_get_time();
+    int64_t window = esp_timer_get_time(), us_nr = 0, us_conv = 0, us_jpeg = 0;
     uint32_t count = 0;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -184,6 +200,7 @@ static void encoder_task(void *arg)
         video_fmt_t fmt;
         uint8_t *fb = frame_take(READER_JPEG, &w, &h, &fmt);
         if (!fb) continue;
+        const int64_t t0 = esp_timer_get_time();
         if (!enc || enc_w != w || enc_h != h || enc_fmt != fmt) {
             if (enc) jpeg_enc_close(enc);
             enc = NULL;
@@ -220,32 +237,38 @@ static void encoder_task(void *arg)
             }
         }
         const uint8_t *src = fb;
-        if (s_nr && s_nr_on) {
-            /* Temporal denoise here, on core 0: the result (s_nr) is what
-             * gets encoded, and the decoder's frame is free right after. */
-            const bool first = !s_nr_valid || s_nr_h != h || s_nr_fmt != fmt;
-            denoise_frame(s_nr, fb, w, h, first);
-            if (fmt == VIDEO_FMT_COLOUR)
-                denoise_frame(s_nr + VIDEO_CHROMA_OFF, fb + VIDEO_CHROMA_OFF, VIDEO_CHROMA_ROW, h / 2, first);
+        const bool nr = s_nr && s_nr_on, nr_first = !s_nr_valid || s_nr_h != h || s_nr_fmt != fmt;
+        if (nr) {
             s_nr_valid = true;
             s_nr_h = h;
             s_nr_fmt = fmt;
+        }
+        if (nr && fmt == VIDEO_FMT_GRAY) {
+            /* Temporal denoise here, on core 0: the result (s_nr) is what
+             * gets encoded, and the decoder's frame is free right after.
+             * Colour frames are denoised band by band below. */
+            denoise_frame(s_nr, fb, w, h, nr_first);
             src = s_nr;
             frame_release(fb);
             fb = NULL;
         }
         int out_len = 0;
         jpeg_error_t err = JPEG_ERR_FAIL;
+        const int64_t t1 = esp_timer_get_time();
+        us_nr += t1 - t0;
         if (fmt == VIDEO_FMT_COLOUR) {
             const int block = jpeg_enc_get_block_size(enc), rows = block / (2 * VIDEO_W);
             for (int y0 = 0; y0 < h; y0 += rows) {
-                planes_band(s_band, src, y0, rows);
+                const int64_t b0 = esp_timer_get_time();
+                planes_band(s_band, src, nr ? s_nr : NULL, nr_first, y0, rows);
+                us_conv += esp_timer_get_time() - b0;
                 err = jpeg_enc_process_with_block(enc, s_band, block, s_spare, JPEG_MAX, &out_len);
                 if (err < JPEG_ERR_OK) break;
             }
         } else {
             err = jpeg_enc_process(enc, src, w * h, s_spare, JPEG_MAX, &out_len);
         }
+        us_jpeg += esp_timer_get_time() - t1;
         if (fb) frame_release(fb);
         if (err != JPEG_ERR_OK || out_len <= 0) continue;
 
@@ -266,6 +289,10 @@ static void encoder_task(void *arg)
         int64_t now = esp_timer_get_time();
         if (now - window >= 1000000) {
             s_fps = count * 1e6f / (float)(now - window);
+            s_ms_nr = count ? us_nr / 1000.0f / count : 0;
+            s_ms_conv = count ? us_conv / 1000.0f / count : 0;
+            s_ms_jpeg = count ? (us_jpeg - us_conv) / 1000.0f / count : 0;
+            us_nr = us_conv = us_jpeg = 0;
             s_frames += count;
             count = 0;
             window = now;
@@ -296,6 +323,13 @@ size_t stream_copy_jpeg_new(uint8_t *dst, size_t max, uint32_t *seq)
     }
     xSemaphoreGive(s_lock);
     return n;
+}
+
+void stream_timing(float *nr_ms, float *conv_ms, float *jpeg_ms)
+{
+    *nr_ms = s_ms_nr;
+    *conv_ms = s_ms_conv;
+    *jpeg_ms = s_ms_jpeg;
 }
 
 void stream_stats(float *fps, uint32_t *jpeg_bytes, uint32_t *frames, int *clients)

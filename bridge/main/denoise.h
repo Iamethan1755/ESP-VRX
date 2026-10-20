@@ -16,3 +16,6 @@
 /* Updates the running picture `acc` (w * h bytes) with frame `in`; `first`
  * restarts it from `in`. Afterwards `acc` is the picture to show. */
 void denoise_frame(uint8_t *acc, const uint8_t *in, int w, int h, bool first);
+/* One row of that: `row` (internal RAM, w <= DENOISE_W_MAX) holds the new
+ * pixels and gets the picture to show; `acc` is the running picture's row. */
+void denoise_row(uint8_t *acc, uint8_t *row, int w, bool first);

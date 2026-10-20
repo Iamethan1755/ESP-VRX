@@ -382,7 +382,9 @@ are the longest decode pass, wait and single line of the last 0.5 s (`kind`:
   then grayscale JPEG (`esp_new_jpeg`, quality 60) at up to 30 fps, always the
   same field parity; colour frames are encoded 4:2:0 from YCbYCr built 16
   rows at a time in internal RAM (block encoder, no colour frame in PSRAM),
-  ~21 fps with denoise; MJPEG on port 81 (up to 3 viewers: when all are taken
+  denoised on the way, ~21 fps with denoise (the encoder's ms per frame:
+  `enc_ms=` denoise + colour bands + JPEG in `s`; a noisy picture makes the
+  JPEG itself slower); MJPEG on port 81 (up to 3 viewers: when all are taken
   the oldest makes room, and a viewer that reads nothing for 5 s is closed),
   page and status on port 80. The page closes its stream while it is in the
   background and reconnects after 5 s without data. 2.4 GHz only: 5 GHz Wi-Fi would land on the FPV band. The denoise

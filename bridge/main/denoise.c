@@ -3,21 +3,26 @@
 #include "denoise.h"
 #include <string.h>
 
+void denoise_row(uint8_t *acc, uint8_t *row, int w, bool first)
+{
+    if (!first) {
+        uint8_t prev[DENOISE_W_MAX];   /* acc lives in PSRAM: read it in one go */
+        memcpy(prev, acc, (size_t)w);
+        for (int x = 0; x < w; x++) {
+            const int d = row[x] - prev[x];
+            if (d <= DENOISE_MOTION && d >= -DENOISE_MOTION) row[x] = (uint8_t)((row[x] + prev[x] + 1) >> 1);
+        }
+    }
+    memcpy(acc, row, (size_t)w);
+}
+
 void denoise_frame(uint8_t *acc, const uint8_t *in, int w, int h, bool first)
 {
     /* Row by row through internal buffers: both frames live in PSRAM. */
-    uint8_t cur[DENOISE_W_MAX], prev[DENOISE_W_MAX];
+    uint8_t cur[DENOISE_W_MAX];
     if (w > DENOISE_W_MAX) return;
     for (int y = 0; y < h; y++) {
-        uint8_t *a = acc + (size_t)y * (size_t)w;
         memcpy(cur, in + (size_t)y * (size_t)w, (size_t)w);
-        if (!first) {
-            memcpy(prev, a, (size_t)w);
-            for (int x = 0; x < w; x++) {
-                const int d = cur[x] - prev[x];
-                if (d <= DENOISE_MOTION && d >= -DENOISE_MOTION) cur[x] = (uint8_t)((cur[x] + prev[x] + 1) >> 1);
-            }
-        }
-        memcpy(a, cur, (size_t)w);
+        denoise_row(acc + (size_t)y * (size_t)w, cur, w, first);
     }
 }

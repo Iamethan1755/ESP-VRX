@@ -36,6 +36,9 @@ const uint8_t *stream_display_take(int *w, int *h, video_fmt_t *fmt);
 void stream_display_release(const uint8_t *fb);
 #endif
 void stream_stats(float *fps, uint32_t *jpeg_bytes, uint32_t *frames, int *clients);
+/* The encoder's time per frame (ms, last second): denoise, colour YCbYCr
+ * bands, JPEG itself (wall time on core 0, so with what preempts it). */
+void stream_timing(float *nr_ms, float *conv_ms, float *jpeg_ms);
 /* Temporal denoise before JPEG (on by default). */
 void stream_set_denoise(bool on);
 bool stream_denoise(void);
