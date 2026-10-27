@@ -58,8 +58,12 @@ What it took, against the plan below:
   25°). Fields without usable bursts (no line lock) are gray as well: the C5's
   snow was coloured by the last reference before. Live, bench pair: 6-9° and
   full colour on a good signal, snow gray. Recordings replay at 7-10°
-  (`bridge/test/replay.py`). A weak but still locked live picture has not been
-  measured yet.
+  (`bridge/test/replay.py`). Weakened by hand, this pair goes from 7-9° to no
+  lock within about a second; only at the edge, while the lock flickers, do
+  single readings reach 13-22°. With colour on the snow, overruns had climbed
+  at such signal changes (0 to 161); with this build there were none over 17
+  lock losses and 15 minutes of snow. A steady noisy but locked picture (the
+  confetti one) was not reproduced.
 - **The test pattern** has 75 % colour bars with a burst. Its per-phase lines
   sit in internal RAM, and it writes at most 3/4 of the ring per pass: one
   pass for all the time since a long one overran the ring (also in gray).
