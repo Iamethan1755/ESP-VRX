@@ -4,7 +4,7 @@ Wi-Fi video for the [C5VRX](https://github.com/Twotoz/C5VRX) analog 5.8 GHz
 FPV receiver: an ESP32-S3 reads the receiver's video output, locks to the
 picture and streams it to a phone browser (or a PC over USB):
 
-![The quad's camera with its Betaflight OSD, received by the C5 and streamed by VRX Bridge](docs/live-view.jpg)
+<img src="docs/phone-colour.jpg" width="360" alt="VRX Bridge on an iPhone: the quad's camera in colour with its Betaflight OSD, received by the C5 and streamed over Wi-Fi">
 
 ```
 VTX ))) XIAO ESP32-C5 (C5VRX-5)   --video bits 1..5 on D5..D9--+--> resistor DAC --> goggles (optional)
@@ -265,6 +265,8 @@ Join **VRX-Bridge** (password `vrxbridge`), open `http://192.168.4.1/` (or
 `http://vrx-bridge.local/`) and tap **Full**: on iPhone the picture opens in
 the phone's own video player, like a YouTube video (Done or a swipe down
 leaves it); desktop, Android and iPad use the browser's full screen.
+
+![The quad's camera with its Betaflight OSD in gray (Colour off), on the phone](docs/live-view.jpg)
 
 The page reads the MJPEG stream itself and draws only the newest frame, so
 the picture never falls behind (Safari's own handling of an MJPEG `<img>`
