@@ -50,6 +50,16 @@ What it took, against the plan below:
   (live: ~60 a second against ~37 at 1.9 ppm), in up/down pairs from noise,
   so the signed sum and the `clock` reading (+1-2 ppm) stay right. A second
   far-off burst now has to be off to the same side as the first.
+- **Noisy pictures go gray** (2026-10-26). On a weak signal the chroma
+  drowns along with the burst (FM noise rises with frequency) while sync and
+  luma hold, and colour showed as confetti with the burst still at 1.6-2.2
+  codes. The bursts' phase noise around the reference (`bnoise` in `s`) now
+  fades the colour from 15° and turns it gray from 30° (colour again below
+  25°). Fields without usable bursts (no line lock) are gray as well: the C5's
+  snow was coloured by the last reference before. Live, bench pair: 6-9° and
+  full colour on a good signal, snow gray. Recordings replay at 7-10°
+  (`bridge/test/replay.py`). A weak but still locked live picture has not been
+  measured yet.
 - **The test pattern** has 75 % colour bars with a burst. Its per-phase lines
   sit in internal RAM, and it writes at most 3/4 of the ring per pass: one
   pass for all the time since a long one overran the ring (also in gray).

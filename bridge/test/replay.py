@@ -31,7 +31,7 @@ def main() -> int:
         old.unlink()
     prefix = out / f"{rec.stem}_{filt}"
     rc = subprocess.call([str(exe), str(rec), fs, filt, str(prefix)])
-    for pgm in sorted(out.glob(f"{rec.stem}_{filt}_*.pgm")):
+    for pgm in sorted([*out.glob(f"{rec.stem}_{filt}_*.pgm"), *out.glob(f"{rec.stem}_{filt}_*.ppm")]):
         pgm_to_png(pgm)
         pgm.unlink()
     return rc

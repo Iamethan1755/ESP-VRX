@@ -442,7 +442,7 @@
     ['Standard', s => `${s.std}, ${s.lines_per_field} lines per field, ${s.line_us.toFixed(2)} µs lines`],
     ['Levels (DAC codes)', s => `sync ${s.sync}, blank ${s.blank}, shown ${s.black}–${s.white} (${s.levels})`],
     ['Picture offset', s => `${s.h_offset_us.toFixed(1)} µs, ${s.v_offset} lines`],
-    ['Colour', s => !s.colour ? 'off' : `${s.colour_shown ? 'shown' : 'no colour burst'}, burst ${(s.burst || 0).toFixed(1)} codes, ${s.slips || 0} clock slips (${(s.clock_ppm || 0) >= 0 ? '+' : ''}${(s.clock_ppm || 0).toFixed(2)} ppm)`],
+    ['Colour', s => !s.colour ? 'off' : `${s.colour_noisy ? 'too noisy (gray)' : s.colour_shown ? `shown${s.colour_sat < 1 ? `, saturation ${Math.round(s.colour_sat * 100)} %` : ''}` : 'no colour burst'}, burst ${(s.burst || 0).toFixed(1)} codes, noise ${Math.round(s.burst_noise || 0)}°, ${s.slips || 0} clock slips (${(s.clock_ppm || 0) >= 0 ? '+' : ''}${(s.clock_ppm || 0).toFixed(2)} ppm)`],
     ['Input rate / decode load', s => `${s.msps.toFixed(2)} MS/s, ${Math.round(s.load * 100)} %`],
     ['Stream', s => `${s.fps.toFixed(1)} fps, ${(s.jpeg_bytes / 1024).toFixed(1)} KB/frame, ${s.clients} viewer(s), ${s.stations} on Wi-Fi`],
     ['Fields / overruns / lock losses', s => `${s.fields} / ${s.overruns} / ${s.lock_losses}`],
