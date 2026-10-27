@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Shared state of VRX Bridge: source selection, status and the
+/* Shared state of ESP-VRX: source selection, status and the
  * picture commands used by both the USB console and the web page. */
 #pragma once
 #include <stdbool.h>

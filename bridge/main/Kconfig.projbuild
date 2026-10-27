@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
-menu "VRX Bridge"
+menu "ESP-VRX"
 
     config BRIDGE_WIFI_SSID
         string "Wi-Fi network name (SSID)"
-        default "VRX-Bridge"
+        default "ESP-VRX"
 
     config BRIDGE_WIFI_PASSWORD
         string "Wi-Fi password (8+ characters, empty for an open network)"

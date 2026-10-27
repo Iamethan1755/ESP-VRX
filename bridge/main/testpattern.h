@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Synthetic composite source for VRX Bridge: writes interlaced
+/* Synthetic composite source for ESP-VRX: writes interlaced
  * NTSC (525 lines) or PAL (625 lines) as 6-bit DAC codes into the capture
  * ring, with the standard equalising and broad pulses of both fields, so
  * the decoder, JPEG and Wi-Fi path can be tested without a receiver.

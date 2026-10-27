@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Composite video decoder for VRX Bridge: line PLL on the sync
+/* Composite video decoder for ESP-VRX: line PLL on the sync
  * edges, vertical sync from broad pulses, one grayscale or (NTSC) colour
  * frame per field. See video.h. */
 #include "video.h"

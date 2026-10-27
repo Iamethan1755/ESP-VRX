@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
-"""PC companion for VRX Bridge (Wi-Fi video for the C5VRX receiver, XIAO ESP32-S3) over its USB console.
+"""PC companion for ESP-VRX (Wi-Fi video for the C5VRX receiver, XIAO ESP32-S3) over its USB console.
 
   python tools/bridge_tool.py status            one status line
   python tools/bridge_tool.py raw               raw bus samples -> captures/raw_*.bin + .png plots
@@ -31,7 +31,7 @@ B64_LINE = re.compile(r"^[A-Za-z0-9+/=]+$")
 OUT_DIR = pathlib.Path(__file__).resolve().parent.parent / "captures"
 
 
-HELP_ID = "VRX Bridge keys"   # first line of the bridge's console help
+HELP_IDS = ("ESP-VRX keys", "VRX Bridge keys")   # first line of the console help: now, before the rename
 
 
 def open_port(name: str) -> serial.Serial:
@@ -57,8 +57,8 @@ def is_bridge(s: serial.Serial) -> bool:
         s.write(b"h")
     except serial.SerialTimeoutException:
         return False
-    lines = read_until(s, lambda l: HELP_ID in l, 1.5)
-    if not any(HELP_ID in l for l in lines):
+    lines = read_until(s, lambda l: any(h in l for h in HELP_IDS), 1.5)
+    if not any(h in l for l in lines for h in HELP_IDS):
         return False
     read_until(s, lambda l: False, 0.3)   # drain the rest of the help
     return True

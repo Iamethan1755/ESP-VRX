@@ -1,6 +1,6 @@
 # Colour study: NTSC colour from the C5VRX video bus
 
-Can VRX Bridge show colour, and what would it cost? This started as a
+Can ESP-VRX show colour, and what would it cost? This started as a
 PC-only study on raw recordings of the bus between the C5 and the S3, with
 the prototype [`tools/chroma_study.py`](../tools/chroma_study.py); every
 number in the sections after "On the board" comes from it unless a source is

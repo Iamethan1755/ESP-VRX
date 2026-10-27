@@ -20,7 +20,7 @@
 #include "stream.h"
 
 static const char *HELP =
-    "VRX Bridge keys:\n"
+    "ESP-VRX keys:\n"
     "  s  status            t  next source (C5 / NTSC test / PAL test)\n"
     "  c  levels auto/std   j l  picture left/right   i k  picture up/down\n"
     "  f  despeckle median/smooth                     d  denoise on/off\n"

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Composite video decoder for VRX Bridge.
+/* Composite video decoder for ESP-VRX.
  *
  * Input: a power-of-two ring of 6-bit composite samples (the C5VRX DAC code,
  * bits 0..5 of each byte; bits 6 and 7 must be 0) written by DMA or by the

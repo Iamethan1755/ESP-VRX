@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Optional SPI TFT screen of VRX Bridge (menuconfig BRIDGE_SPI_DISPLAY):
+/* Optional SPI TFT screen of ESP-VRX (menuconfig BRIDGE_SPI_DISPLAY):
  * the live picture on a 320x240 ILI9341 or ST7789 wired to the XIAO
  * ESP32-S3, at the same time as the Wi-Fi stream. */
 #pragma once

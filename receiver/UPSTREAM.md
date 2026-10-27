@@ -6,7 +6,7 @@ by Twotoz and the C5VRX contributors, release `c5vrx5-v5.0.109`
 The official source, releases and web flasher are at
 <https://github.com/Twotoz/C5VRX> and <https://twotoz.github.io/C5VRX/>.
 
-VRX Bridge keeps it here as released (the first commit touching this
+ESP-VRX keeps it here as released (the first commit touching this
 folder), except:
 
 - Three small commits for the bridge:

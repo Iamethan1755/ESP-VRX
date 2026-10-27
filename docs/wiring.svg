@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1450" width="1400" height="1450" font-family="'Segoe UI', Arial, sans-serif">
 <rect width="1400" height="1450" fill="#FFFFFF"/>
-<text x="40" y="48" font-size="28" font-weight="700" fill="#1D2733" text-anchor="start">VRX Bridge: wiring</text>
+<text x="40" y="48" font-size="28" font-weight="700" fill="#1D2733" text-anchor="start">ESP-VRX: wiring</text>
 <text x="40" y="74" font-size="15" font-weight="normal" fill="#8A94A3" text-anchor="start">XIAO ESP32-C5 (5.8 GHz receiver, C5VRX) to XIAO ESP32-S3 (Wi-Fi bridge). Seven wires: five video bits, the phone's receiver keys (on the bit 0 wire) and ground.</text>
 <rect x="60" y="130" width="300" height="460" rx="14" fill="#F3F6FB" stroke="#3B4A5F" stroke-width="2"/>
 <rect x="1040" y="130" width="300" height="460" rx="14" fill="#F3F6FB" stroke="#3B4A5F" stroke-width="2"/>
@@ -237,5 +237,5 @@
 <text x="772" y="1337" font-size="14" font-weight="normal" fill="#1D2733" text-anchor="start">then the S3 (the S3 drives D0 only while sending).</text>
 <text x="760" y="1360" font-size="14" font-weight="normal" fill="#1D2733" text-anchor="start">•  Self-test (S3 console L) only with D0–D5 disconnected;</text>
 <text x="772" y="1383" font-size="14" font-weight="normal" fill="#1D2733" text-anchor="start">it refuses if it sees the C5 driving them.</text>
-<text x="1370" y="1434" font-size="11" font-weight="normal" fill="#8A94A3" text-anchor="end">VRX Bridge · tools/make_wiring_svg.py · C5VRX by Twotoz and the C5VRX contributors</text>
+<text x="1370" y="1434" font-size="11" font-weight="normal" fill="#8A94A3" text-anchor="end">ESP-VRX · tools/make_wiring_svg.py · C5VRX by Twotoz and the C5VRX contributors</text>
 </svg>

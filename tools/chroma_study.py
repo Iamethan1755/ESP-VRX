@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
-"""Colour study for VRX Bridge: can the S3 decode NTSC colour from the C5VRX
+"""Colour study for ESP-VRX: can the S3 decode NTSC colour from the C5VRX
 receiver's video bus? A PC prototype on raw bus recordings
 (bridge_tool.py rawlong: 20 MS/s, one uint8 per sample, 6-bit codes).
 

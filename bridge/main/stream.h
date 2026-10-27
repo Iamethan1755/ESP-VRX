@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Wi-Fi access point, web page and MJPEG stream of VRX Bridge. */
+/* Wi-Fi access point, web page and MJPEG stream of ESP-VRX. */
 #pragma once
 #include <stdbool.h>
 #include <stddef.h>

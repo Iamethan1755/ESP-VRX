@@ -1,10 +1,10 @@
-# VRX Bridge
+# ESP-VRX
 
 Wi-Fi video for the [C5VRX](https://github.com/Twotoz/C5VRX) analog 5.8 GHz
 FPV receiver: an ESP32-S3 reads the receiver's video output, locks to the
 picture and streams it to a phone browser (or a PC over USB):
 
-<img src="docs/phone-colour.jpg" width="360" alt="VRX Bridge on an iPhone: the quad's camera in colour with its Betaflight OSD, received by the C5 and streamed over Wi-Fi">
+<img src="docs/phone-colour.jpg" width="360" alt="ESP-VRX on an iPhone: the quad's camera in colour with its Betaflight OSD, received by the C5 and streamed over Wi-Fi">
 
 ```
 VTX ))) XIAO ESP32-C5 (C5VRX-5)   --video bits 1..5 on D5..D9--+--> resistor DAC --> goggles (optional)
@@ -24,13 +24,13 @@ VTX ))) XIAO ESP32-C5 (C5VRX-5)   --video bits 1..5 on D5..D9--+--> resistor DAC
 > video DAC output.
 > Visit the [official C5VRX website](https://twotoz.github.io/C5VRX/) for the
 > original project and its Discord invite. See the source and license notices
-> for the applicable terms. VRX Bridge is an independent add-on: it is not an
+> for the applicable terms. ESP-VRX is an independent add-on: it is not an
 > official C5VRX release and is not affiliated with or endorsed by C5VRX.
 
 ## Why I made this
 
 Hey, my name is Ethan. I'm a mechanical engineer, and after watching Joshua
-Bardwell's video on the C5VRX I thought I'd build my own. VRX Bridge sends
+Bardwell's video on the C5VRX I thought I'd build my own. ESP-VRX sends
 the receiver's picture over Wi-Fi to whatever device you want, a phone,
 tablet or laptop, where you watch it live in the browser with nothing to
 install. It's perfect for showing your family and friends your flying
@@ -120,7 +120,7 @@ The picture can also go to a 320×240 SPI TFT wired to the S3, with no Wi-Fi
 in between; the phone stream keeps working at the same time. Made for the
 common red 2.8"/3.2" ILI9341 board; ST7789 IPS modules (240×320) work too.
 It is off by default: `.\tools\build.ps1 bridge -Menuconfig`, then
-*VRX Bridge* > *SPI TFT screen* on and pick the controller, build and flash.
+*ESP-VRX* > *SPI TFT screen* on and pick the controller, build and flash.
 
 | Screen pin | XIAO ESP32-S3 |
 | --- | --- |
@@ -176,7 +176,7 @@ Limits:
 - A project venv `.venv` with pyserial, numpy, matplotlib and ziglang (a C
   compiler for the host test).
 - Clone to a path without spaces or apostrophes (ESP-IDF does not accept
-  them), e.g. `C:\dev\vrx-bridge`.
+  them), e.g. `C:\dev\esp-vrx`.
 
 On a new PC: clone ESP-IDF v6.0.2 with submodules, run
 `install.ps1 esp32c5,esp32s3`, clone this repo, create the
@@ -224,7 +224,7 @@ reader.
 3. Test patterns through the real decoder and JPEG encoder (console `t`):
    NTSC locked, 262/263 lines per field, 30 fps, 0 overruns; PAL 312/313
    lines, 25 fps.
-4. On the phone, join Wi-Fi **VRX-Bridge** (password `vrxbridge`), open
+4. On the phone, join Wi-Fi **ESP-VRX** (password `vrxbridge`), open
    `http://192.168.4.1/`, open the gear (Settings) and tap **Test pattern**
    until the badge says `TEST NTSC`: bars, a ramp and a box moving left and
    right. That proves Wi-Fi and the page end to end (`s` on the console then
@@ -261,8 +261,8 @@ which shaped the decoder's sync detection (see below).
 
 ## On the phone
 
-Join **VRX-Bridge** (password `vrxbridge`), open `http://192.168.4.1/` (or
-`http://vrx-bridge.local/`) and tap **Full**: on iPhone the picture opens in
+Join **ESP-VRX** (password `vrxbridge`), open `http://192.168.4.1/` (or
+`http://esp-vrx.local/`) and tap **Full**: on iPhone the picture opens in
 the phone's own video player, like a YouTube video (Done or a swipe down
 leaves it); desktop, Android and iPad use the browser's full screen.
 
@@ -434,7 +434,7 @@ for flying.
 | `overruns` climbing in `s` | The decoder falls behind: check `load`, `line_us drawn` (above ~70 us the 3.3 ms ring runs out during a drawn field; colour live is ~62, gray ~50), `line_max` (single long lines are fine) and that `bridge\sdkconfig` has `CONFIG_COMPILER_OPTIMIZATION_PERF=y`. Colour off (`m`) frees ~12 us per drawn line. |
 | No colour, or colour flickers | `s`: `colour=no-burst` means no colour burst is seen (PAL, a black-and-white camera, or a weak picture: `burst` below 0.5 codes turns colour off, above 0.8 on). `slips` counts the S3/C5 clock slips and `clock` the clock offset they give (~2 ppm on the bench pair). |
 | Several pictures stacked in one frame | False vertical syncs: `lines/field` in `s` should be 262 (NTSC) or 312/313 (PAL). |
-| Picture on the phone stutters | `w` while it plays: `VIEWER` fps well below the `fps` in `s`, or long `send_ms`, means frames do not get out fast enough. Open `http://192.168.4.1/bench` on the phone: the console's `BENCH` line gives the Wi-Fi link's own speed (1 MB of filler). Fast there but slow video: the browser; slow there too: the link (signal, interference). Keep the phone on VRX-Bridge: iOS leaves networks without internet (turn off Auto-Join of the home network while watching). |
+| Picture on the phone stutters | `w` while it plays: `VIEWER` fps well below the `fps` in `s`, or long `send_ms`, means frames do not get out fast enough. Open `http://192.168.4.1/bench` on the phone: the console's `BENCH` line gives the Wi-Fi link's own speed (1 MB of filler). Fast there but slow video: the browser; slow there too: the link (signal, interference). Keep the phone on ESP-VRX: iOS leaves networks without internet (turn off Auto-Join of the home network while watching). |
 | Receiver buttons do nothing | `u` on the S3 console: it must PASS and report "receiver pull-up seen (line rose in a few us)". Anything else means the receiver is not listening, and the S3 sends no keys: check the D4-D0 wire, that the C5 runs this repo's `receiver/` build (flash it first, then the S3), and that no DAC resistor sits on D4. The C5 console prints `BRIDGE key c` / `BRIDGE channel N` for each key it gets; a channel picked during its start-up calibration is applied when it ends. |
 | `.ps1 cannot be loaded` | Use the `powershell -ExecutionPolicy Bypass -File ...` form above. |
 
