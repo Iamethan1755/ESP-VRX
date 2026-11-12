@@ -67,7 +67,7 @@ static void print_status(void)
     snprintf(lcd, sizeof lcd, " lcd_fps=%.1f", display_fps());
 #endif
     printf("STATUS source=%s capture=%s h_lock=%d v_lock=%d std=%s lines/field=%d line_us=%.3f "
-           "sync=%.1f blank=%.1f map=%.1f..%.1f levels=%s filter=%s denoise=%d colour=%s burst=%.2f slips=%lu clock=%+.2fppm "
+           "sync=%.1f blank=%.1f map=%.1f..%.1f levels=%s filter=%s denoise=%d colour=%s burst=%.2f bnoise=%.0fdeg sat=%.2f slips=%lu clock=%+.2fppm "
            "fields=%lu overruns=%lu lock_losses=%lu "
            "h_offset=%.1fus v_offset=%d rate=%.2fMS/s load=%.0f%% line_us drawn=%.1f skipped=%.1f pass_max=%luus gap_max=%luus line_max=%luus(kind %lu) fps=%.1f%s jpeg=%lu enc_ms=%.1f+%.1f+%.1f clients=%d wifi=" CONFIG_BRIDGE_WIFI_SSID " stations=%d "
            "heap_int=%lu heap_psram=%lu up=%lus reset=%s\n",
@@ -75,7 +75,8 @@ static void print_status(void)
            v->std == VIDEO_STD_PAL ? "PAL" : "NTSC", v->lines_per_field, v->line_us, v->sync_level,
            v->blank_level, v->black_level, v->white_level, v->levels == VIDEO_LEVELS_AUTO ? "auto" : "std",
            v->filter == VIDEO_FILTER_MEDIAN ? "median" : "smooth", (int)stream_denoise(),
-           !v->colour ? "off" : !v->colour_shown ? "no-burst" : v->colour_simd ? "on" : "on(no-simd)", v->burst_level, (unsigned long)v->slips, s.clock_ppm,
+           !v->colour ? "off" : v->colour_noisy ? "noisy" : !v->colour_shown ? "no-burst" : v->colour_simd ? "on" : "on(no-simd)",
+           v->burst_level, v->burst_noise_deg, v->colour_sat, (unsigned long)v->slips, s.clock_ppm,
            (unsigned long)v->fields, (unsigned long)v->overruns, (unsigned long)v->lock_losses,
            v->h_offset_tenths_us / 10.0, v->v_offset_lines, s.sample_msps, s.decode_load * 100, s.drawn_line_us,
            s.skipped_line_us,

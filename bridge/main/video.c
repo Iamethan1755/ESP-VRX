@@ -28,6 +28,14 @@
 #define CTAB_PEAK 31
 #define COS2_STEP 0.671f      /* cos^2(35 deg): a burst further off the reference is a phase step */
 #define WEAK_BURSTS 200       /* lines in a row without a burst that drop the reference */
+/* Burst phase noise (degrees rms) against colour: full saturation up to
+ * NOISE_FULL_DEG, fading to gray at NOISE_OFF_DEG, colour again below
+ * NOISE_ON_DEG. The chroma noise is about 34 IRE x the noise in radians
+ * (the burst is 20 IRE over 45 samples, a chroma block 16): 15 degrees
+ * is ~9 IRE, as much as the median colour of a scene. */
+#define NOISE_FULL_DEG 15.0f
+#define NOISE_OFF_DEG  30.0f
+#define NOISE_ON_DEG   25.0f
 #define LOCK_GOOD      5      /* consecutive line-spaced syncs needed to lock */
 #define LOCK_MISS      30     /* consecutive missing syncs that drop the lock */
 
@@ -38,6 +46,12 @@ static int us_n(uint32_t fs_hz, double us) { return (int)(us * fs_hz / 1e6 + 0.5
 static inline __attribute__((always_inline)) float burst_unit(const video_t *v)
 {
     return CTAB_PEAK / 2.0f * (float)(v->c_bblk * v->c_bblocks);
+}
+
+/* Burst phase noise in degrees rms from the mean of sin^2 (bnoise). */
+static float noise_deg(float m)
+{
+    return asinf(sqrtf(m < 0 ? 0 : m > 1 ? 1 : m)) * (float)(360.0 / TWO_PI);
 }
 
 /* Sync detection works on the signal averaged over c_box samples (0.4 us),
@@ -252,20 +266,38 @@ static void field_start(video_t *v, bool vsync)
     v->delivered = false;
     v->line_in_field = carry;
     /* Colour for the coming field: on, NTSC, a burst (on above 0.8 codes,
-     * off below 0.5) and levels to scale the chroma by. */
+     * off below 0.5), a quiet one and levels to scale the chroma by. */
     const float lim = (v->burst_ok ? 0.5f : 0.8f) * burst_unit(v);
     const float rp = v->ref_re * v->ref_re + v->ref_im * v->ref_im;
     v->burst_ok = v->have_ref && rp > lim * lim;
+    /* Burst phase noise of the field just ended, averaged over ~4 fields;
+     * the first one after a reset as it is. Until then no colour: no
+     * confetti at lock. A field with too few usable bursts (no line lock:
+     * the C5's snow without a transmitter) leaves the noise as it was and
+     * gets no colour: the reference is only updated on locked lines, so it
+     * would colour the snow (board 2026-10-26). */
+    const bool bursts = v->bn_n >= 16;
+    if (bursts) {
+        const float m = v->bn_sum > 0 ? v->bn_sum / (float)v->bn_n : 0.0f;
+        v->bnoise = v->bnoise < 0 ? m : v->bnoise + (m - v->bnoise) * 0.25f;
+    }
+    v->bn_sum = 0;
+    v->bn_n = 0;
+    const float deg = noise_deg(v->bnoise), sat = (NOISE_OFF_DEG - deg) / (NOISE_OFF_DEG - NOISE_FULL_DEG);
+    v->noise_ok = v->bnoise >= 0 && deg < (v->noise_ok ? NOISE_OFF_DEG : NOISE_ON_DEG);
+    v->colour_sat = v->noise_ok ? (sat > 1 ? 1 : sat < 0 ? 0 : sat) : 0;
     /* Burst samples within blanking +- (2 bursts + 4 codes): the burst and
      * its noise pass, a click is cut down. */
     v->burst_clip = v->have_ref ? (int)(2.0f * sqrtf(rp) / burst_unit(v) + 4.5f) : 12;
-    v->colour_field = v->colour && v->std == VIDEO_STD_NTSC && v->burst_ok && v->blank_q8 - v->sync_q8 >= 2 * 256;
+    v->colour_field = v->colour && v->std == VIDEO_STD_NTSC && v->burst_ok && v->noise_ok && bursts &&
+                      v->blank_q8 - v->sync_q8 >= 2 * 256;
     if (v->colour_field) {
         /* Chroma sums / reference = chroma / burst amplitude * (burst samples
          * / block samples); the burst is 20 IRE and blanking - sync 40 IRE,
-         * so in luma 0..1 units: * (blank - sync) / 2 / (white - black). */
+         * so in luma 0..1 units: * (blank - sync) / 2 / (white - black).
+         * Faded by the noise. */
         v->chroma_gain = (float)(v->blank_q8 - v->sync_q8) / (2.0f * (float)(v->map_hi_q8 - v->map_lo_q8)) *
-                         (float)(v->c_bblk * v->c_bblocks) / (float)v->c_cblk;
+                         (float)(v->c_bblk * v->c_bblocks) / (float)v->c_cblk * v->colour_sat;
     }
 }
 
@@ -277,9 +309,11 @@ static void field_start(video_t *v, bool vsync)
  * 8 cycles at 20 MS/s) against the subcarrier at the absolute sample index;
  * an average of the bursts (1/8 per line) as the phase and amplitude
  * reference, with a burst more than 35 degrees off used for its own line
- * only and a second one in a row restarting the average (the slip);
- * chroma sums over VIDEO_CW blocks of the even picture rows (16 samples at
- * 20 MS/s, SIMD), rotated by the reference into the frame's Cb/Cr plane. */
+ * only and a second one in a row restarting the average (the slip); the
+ * bursts' spread around the reference as the noise that fades the colour
+ * out on a weak picture; chroma sums over VIDEO_CW blocks of the even
+ * picture rows (16 samples at 20 MS/s, SIMD), rotated by the reference into
+ * the frame's Cb/Cr plane. */
 
 /* Packed cos/sin tables for `blocks` blocks of n samples from phase 0, with
  * a zero sum per block: the rounding residue goes to the entries rounded
@@ -455,6 +489,10 @@ static VIDEO_HOT void colour_burst(video_t *v, int64_t t0)
     }
     v->weak_bursts = 0;
     const float dr = ar * v->ref_re + ai * v->ref_im, di = ai * v->ref_re - ar * v->ref_im;
+    /* Phase noise: sin^2 of the angle off the reference, 1 beyond 90 degrees. */
+    const float q = dr > 0 ? di * di / (dr * dr + di * di) : 1.0f;
+    v->bn_sum += q;
+    v->bn_n++;
     if (dr > 0 && dr * dr > COS2_STEP * (dr * dr + di * di)) {
         v->have_pend = false;
         v->ref_re += (ar - v->ref_re) * 0.125f;
@@ -476,12 +514,16 @@ static VIDEO_HOT void colour_burst(video_t *v, int64_t t0)
             v->ref_re = (ar + v->pend_re) * 0.5f;
             v->ref_im = (ai + v->pend_im) * 0.5f;
             v->have_pend = false;
+            /* The two bursts of a slip are no noise. */
+            v->bn_sum -= v->pend_q + q;
+            v->bn_n -= 2;
             return;
         }
     }
     v->pend_re = ar;
     v->pend_im = ai;
     v->pend_back = di < 0;
+    v->pend_q = q;
     v->have_pend = true;
 }
 
@@ -610,6 +652,7 @@ static void restart_tracking(video_t *v, int64_t pos)
      * frame. A field forced after a real loss takes the next sync (v_miss). */
     if (v->h_locked) v->lock_losses++;
     v->h_locked = false;
+    v->line_ok = false;   /* the rest of a colour field gray: no bursts measured until the lock is back */
     v->have_prev = false;
     v->good = v->miss = 0;
     v->cur_run = 0;
@@ -794,6 +837,11 @@ void video_reset(video_t *v, uint32_t write_pos)
     v->have_ref = v->have_pend = v->line_ok = v->burst_ok = v->colour_field = false;
     v->weak_bursts = 0;
     v->burst_clip = 12;
+    v->bn_sum = 0;
+    v->bn_n = 0;
+    v->bnoise = -1;
+    v->noise_ok = false;
+    v->colour_sat = 0;
 }
 
 VIDEO_HOT void video_process(video_t *v, uint32_t write_pos)
@@ -862,6 +910,9 @@ void video_get_stats(const video_t *v, video_stats_t *o)
     o->colour_shown = v->colour_field;
     o->colour_simd = v->pie;
     o->burst_level = v->have_ref ? sqrtf(v->ref_re * v->ref_re + v->ref_im * v->ref_im) / burst_unit(v) : 0.0f;
+    o->burst_noise_deg = v->bnoise >= 0 ? noise_deg(v->bnoise) : 0.0f;
+    o->colour_sat = v->colour_field ? v->colour_sat : 0.0f;
+    o->colour_noisy = v->colour && v->std == VIDEO_STD_NTSC && v->burst_ok && !v->noise_ok;
     o->slips = v->slips;
     o->slip_sum = v->slip_sum;
 }

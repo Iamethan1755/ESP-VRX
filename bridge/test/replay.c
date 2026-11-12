@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Replay a raw recording of the C5 bus (bridge_tool.py rawlong) through the
  * bridge's decoder: prints lock and field events with their time and saves
- * the drawn fields. Build and run: python bridge/test/replay.py FILE.bin
+ * the drawn fields (colour as on the bridge: NTSC with a burst; REPLAY_GRAY=1
+ * for gray). Build and run: python bridge/test/replay.py FILE.bin
  * usage: replay FILE.bin FS_HZ [median|smooth] [OUTPREFIX] */
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,25 +14,40 @@
 #define CHUNK 2048u
 
 static uint8_t s_ring[RING];
-static uint8_t s_fb[2][VIDEO_W * VIDEO_H_MAX];
+static uint8_t s_fb[2][VIDEO_W * VIDEO_H_MAX * VIDEO_BPP_MAX];
 static const char *s_prefix = "replay";
 static int s_saved;
 
-static void save_pgm(const uint8_t *img, int w, int h)
+static uint8_t clamp255(double v) { return (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : (int)(v + 0.5)); }
+
+/* A gray frame as PGM, a colour one (video.h) as PPM. */
+static void save_pgm(const uint8_t *img, int w, int h, video_fmt_t fmt)
 {
     char path[512];
-    snprintf(path, sizeof path, "%s_%02d.pgm", s_prefix, s_saved++);
+    const bool colour = fmt == VIDEO_FMT_COLOUR;
+    snprintf(path, sizeof path, "%s_%02d.%s", s_prefix, s_saved++, colour ? "ppm" : "pgm");
     FILE *f = fopen(path, "wb");
     if (!f) return;
-    fprintf(f, "P5\n%d %d\n255\n", w, h);
-    fwrite(img, 1, (size_t)(w * h), f);
+    fprintf(f, "%s\n%d %d\n255\n", colour ? "P6" : "P5", w, h);
+    if (!colour) {
+        fwrite(img, 1, (size_t)(w * h), f);
+    } else {
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                const uint8_t *c = img + VIDEO_CHROMA_OFF + (y / 2) * VIDEO_CHROMA_ROW + x * VIDEO_CW / VIDEO_W;
+                const double l = img[y * w + x], cb = c[0] - 128, cr = c[VIDEO_CW] - 128;
+                const uint8_t rgb[3] = {clamp255(l + 1.402 * cr), clamp255(l - 0.344136 * cb - 0.714136 * cr),
+                                        clamp255(l + 1.772 * cb)};
+                fwrite(rgb, 1, 3, f);
+            }
+    }
     fclose(f);
 }
 
-static uint8_t *on_field(uint8_t *done, int w, int h, bool rendered, bool *render_next, void *ctx)
+static uint8_t *on_field(uint8_t *done, int w, int h, video_fmt_t fmt, bool rendered, bool *render_next, void *ctx)
 {
     (void)ctx;
-    if (rendered) save_pgm(done, w, h);
+    if (rendered) save_pgm(done, w, h, fmt);
     *render_next = !rendered;
     return rendered ? (done == s_fb[0] ? s_fb[1] : s_fb[0]) : done;
 }
@@ -60,6 +76,8 @@ int main(int argc, char **argv)
     video_init(&v, s_ring, RING, fs, s_fb[0], on_field, NULL);
     video_reset(&v, 0);
     if (argc > 3 && strcmp(argv[3], "smooth") == 0) video_set_filter(&v, VIDEO_FILTER_SMOOTH);
+    const bool colour = !getenv("REPLAY_GRAY");
+    video_set_colour(&v, colour);
 
     const double us = 1e6 / fs;
     /* REPLAY_TRACE=from_ms,to_ms: one line per decoded line in that window */
@@ -89,8 +107,10 @@ int main(int argc, char **argv)
             printf("%8.3f ms  h_lock %d (line %d of field, slicer %.1f, sync %.1f, blank %.1f)\n", ms, st.h_locked,
                    v.line_in_field, v.slice_q8 / 256.0, st.sync_level, st.blank_level);
         if (st.fields != prev.fields)
-            printf("%8.3f ms  field %u: %d lines, %s, v_lock %d\n", ms, st.fields, st.lines_per_field,
-                   v.v_miss ? "forced (no vsync)" : "vsync", st.v_locked);
+            printf("%8.3f ms  field %u: %d lines, %s, v_lock %d, colour %s burst %.2f noise %.1f deg sat %.2f slips %u\n",
+                   ms, st.fields, st.lines_per_field, v.v_miss ? "forced (no vsync)" : "vsync", st.v_locked,
+                   st.colour_shown ? "shown" : st.colour_noisy ? "noisy" : "no", st.burst_level, st.burst_noise_deg,
+                   st.colour_sat, (unsigned)st.slips);
         else if (st.v_locked != v_prev)
             printf("%8.3f ms  v_lock %d\n", ms, st.v_locked);
         h_prev = st.h_locked;
@@ -104,6 +124,7 @@ int main(int argc, char **argv)
          * the signal lasts on core 1 at 20 MS/s; compare runs, not absolutes. */
         video_init(&v, s_ring, RING, fs, s_fb[0], on_field, NULL);
         video_reset(&v, 0);
+        video_set_colour(&v, colour);
         const clock_t c0 = clock();
         for (int rep = 0; rep < 5; rep++)
             for (uint32_t pos = 0; pos + CHUNK <= (uint32_t)size; pos += CHUNK) {

@@ -376,7 +376,13 @@ are the longest decode pass, wait and single line of the last 0.5 s (`kind`:
   `colour=on(no-simd)` in `s` if not) and rotated by the reference into a
   Cb/Cr plane next to the unchanged luma rows: the decoder writes no more to
   PSRAM than for gray. Board, live: 62 µs per drawn line (gray 50), 61 % of
-  core 1, no overruns. PAL and pictures without a burst stay gray.
+  core 1, no overruns. PAL and pictures without a burst stay gray, and so do
+  noisy ones: the chroma shares the burst's band, so the bursts' phase noise
+  around the reference (`bnoise` in `s`, ~9° on a good signal) fades the
+  colour from 15° (`sat`) and turns it gray at 30° (`colour=noisy`, colour
+  again below 25°) instead of showing colour confetti; a field without
+  usable bursts (no line lock, such as the C5's snow without a transmitter)
+  is gray too.
 - **Stream** (core 0): the decoder hands frames over through three buffers
   (four with the screen, `mbox.c`), newest wins, so the encoder always
   starts on the latest picture and the decoder never waits. Optional temporal denoise (a pixel within ±28 of the
@@ -432,7 +438,7 @@ for flying.
 | Too dark / washed out | Levels button: *auto* stretches the picture, *std* uses the sync amplitude. |
 | Reception worse with the S3 on | Move the antennas apart, lower `BRIDGE_WIFI_TX_POWER_DBM` (default 13 dBm). |
 | `overruns` climbing in `s` | The decoder falls behind: check `load`, `line_us drawn` (above ~70 us the 3.3 ms ring runs out during a drawn field; colour live is ~62, gray ~50), `line_max` (single long lines are fine) and that `bridge\sdkconfig` has `CONFIG_COMPILER_OPTIMIZATION_PERF=y`. Colour off (`m`) frees ~12 us per drawn line. |
-| No colour, or colour flickers | `s`: `colour=no-burst` means no colour burst is seen (PAL, a black-and-white camera, or a weak picture: `burst` below 0.5 codes turns colour off, above 0.8 on). `slips` counts the S3/C5 clock slips and `clock` the clock offset they give (~2 ppm on the bench pair). |
+| No colour, or colour flickers | `s`: `colour=no-burst` means no colour burst is seen (PAL, a black-and-white camera, or a weak picture: `burst` below 0.5 codes turns colour off, above 0.8 on). `colour=noisy` means a burst but too much noise for colour (`bnoise` 30° or more; `sat` below 1.00 is colour faded by noise from 15°). `slips` counts the S3/C5 clock slips and `clock` the clock offset they give (~2 ppm on the bench pair). |
 | Several pictures stacked in one frame | False vertical syncs: `lines/field` in `s` should be 262 (NTSC) or 312/313 (PAL). |
 | Picture on the phone stutters | `w` while it plays: `VIEWER` fps well below the `fps` in `s`, or long `send_ms`, means frames do not get out fast enough. Open `http://192.168.4.1/bench` on the phone: the console's `BENCH` line gives the Wi-Fi link's own speed (1 MB of filler). Fast there but slow video: the browser; slow there too: the link (signal, interference). Keep the phone on ESP-VRX: iOS leaves networks without internet (turn off Auto-Join of the home network while watching). |
 | Receiver buttons do nothing | `u` on the S3 console: it must PASS and report "receiver pull-up seen (line rose in a few us)". Anything else means the receiver is not listening, and the S3 sends no keys: check the D4-D0 wire, that the C5 runs this repo's `receiver/` build (flash it first, then the S3), and that no DAC resistor sits on D4. The C5 console prints `BRIDGE key c` / `BRIDGE channel N` for each key it gets; a channel picked during its start-up calibration is applied when it ends. |

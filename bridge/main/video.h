@@ -77,6 +77,9 @@ typedef struct {
     bool colour_shown;        /* the last field was drawn in colour */
     bool colour_simd;         /* chroma sums with the S3's SIMD instructions (self-test passed) */
     float burst_level;        /* colour burst, DAC codes peak (0: none tracked) */
+    float burst_noise_deg;    /* burst phase noise against the reference, degrees rms (60: random) */
+    float colour_sat;         /* chroma gain from the noise: 1 full, falling to 0 (gray) on a noisy picture */
+    bool colour_noisy;        /* colour on and a burst, but the picture is too noisy: gray */
     uint32_t slips;           /* burst phase steps of about one sample: S3/C5 clock slips */
     int32_t slip_sum;         /* duplicated minus dropped samples (> 0: the S3 runs fast) */
 } video_stats_t;
@@ -179,6 +182,17 @@ typedef struct {
     bool burst_ok;            /* the burst is strong enough for colour (hysteresis) */
     int burst_clip;           /* burst samples are limited to blanking +- this (FM clicks) */
     int weak_bursts;          /* lines in a row without a usable burst */
+    /* Burst phase noise: per burst sin^2 of its angle off the reference (1
+     * if more than 90 degrees off), summed over the field, then averaged
+     * over fields. The chroma comes from the same band as the burst, so
+     * this is also the chroma noise against the burst: on a weak picture it
+     * turns colour down and then off (colour confetti otherwise). */
+    float bn_sum;
+    int bn_n;
+    float pend_q;             /* the waiting burst's share of bn_sum (a slip is no noise) */
+    float bnoise;             /* averaged mean of sin^2 (< 0: not measured yet) */
+    float colour_sat;         /* chroma gain from bnoise, 0..1 */
+    bool noise_ok;            /* quiet enough for colour (hysteresis) */
     float chroma_gain;        /* per field: chroma sums / reference -> luma 0..1 units */
     uint32_t slips;
     int32_t slip_sum;

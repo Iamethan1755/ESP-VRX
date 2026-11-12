@@ -96,15 +96,50 @@ static void save_pgm(const char *name)
     fclose(f);
 }
 
-/* Feed `seconds` of signal in DMA-sized chunks, decoding after each chunk. */
+/* Noise in the colour band only, as on a weak FM signal (the noise rises
+ * with frequency: the burst and the chroma drown while sync and luma
+ * still hold): every 8 samples a new random subcarrier of up to
+ * s_cnoise codes per component. */
+static int s_cnoise;
+static uint32_t s_crng = 1;
+
+static void add_chroma_noise(const testpattern_t *tp, uint32_t from, uint32_t to)
+{
+    const double w0 = 2 * 3.141592653589793 * (315e6 / 88) / tp->fs_hz;
+    const int span = 2 * s_cnoise + 1;
+    double a = 0, b = 0;
+    for (uint32_t k = from; k != to; k++) {
+        if (k == from || k % 8 == 0) {
+            s_crng = s_crng * 1664525u + 1013904223u;
+            a = (int)((s_crng >> 8) % (uint32_t)span) - s_cnoise;
+            s_crng = s_crng * 1664525u + 1013904223u;
+            b = (int)((s_crng >> 8) % (uint32_t)span) - s_cnoise;
+        }
+        uint8_t *x = &s_ring[k & (RING - 1)];
+        int v = *x + (int)lround(a * cos(w0 * k) + b * sin(w0 * k));
+        v = v < 0 ? 0 : v > 63 ? 63 : v;
+        *x = (uint8_t)(tp->five_bit ? v & 0x3e : v);
+    }
+}
+
+/* Feed `seconds` of signal in DMA-sized chunks, decoding after each chunk.
+ * Without signal the ring gets zeros, or with s_snow what the C5 puts out
+ * with no transmitter: noise around code 20 (board: 'sync' 8..20, 'blank'
+ * 16..22 in `s`). */
+static bool s_snow;
 static void run(testpattern_t *tp, video_t *v, double seconds, bool signal)
 {
     uint32_t end = tp->pos + (uint32_t)(seconds * tp->fs_hz);
     while ((int32_t)(end - tp->pos) > 0) {
         if (signal) {
+            const uint32_t from = tp->pos;
             testpattern_run_until(tp, tp->pos + CHUNK);
+            if (s_cnoise) add_chroma_noise(tp, from, tp->pos);
         } else {
-            for (uint32_t k = 0; k < CHUNK; k++) s_ring[(tp->pos + k) & (RING - 1)] = 0;
+            for (uint32_t k = 0; k < CHUNK; k++) {
+                s_crng = s_crng * 1664525u + 1013904223u;
+                s_ring[(tp->pos + k) & (RING - 1)] = s_snow ? (uint8_t)(4 + (s_crng >> 8) % 33u) : 0;
+            }
             tp->pos += CHUNK;
         }
         video_process(v, tp->pos);
@@ -312,8 +347,9 @@ static void run_slips(testpattern_t *tp, video_t *v, double seconds, int every)
 /* Colour bars (testpattern.c: white, yellow, cyan, green, magenta, red,
  * blue, black at 75 %) against JFIF Cb/Cr of the same RGB, averaged over
  * rows 5..35 and the middle half of each bar: hue within max_deg, the
- * chroma amplitude within sat_tol of the expected one, gray bars gray. */
-static void check_colour(const char *name, double max_deg, double sat_tol)
+ * chroma amplitude within sat_tol of the expected one times `scale` (the
+ * decoder's saturation), gray bars gray. */
+static void check_colour(const char *name, double max_deg, double sat_tol, double scale)
 {
     static const int rgb[8] = {7, 6, 3, 2, 5, 4, 1, 0};
     CHECK(s_last_fmt == VIDEO_FMT_COLOUR, "%s: frame is not colour", name);
@@ -332,7 +368,7 @@ static void check_colour(const char *name, double max_deg, double sat_tol)
         cr /= n;
         const double r = rgb[bar] & 4 ? 0.75 : 0, g = rgb[bar] & 2 ? 0.75 : 0, b = rgb[bar] & 1 ? 0.75 : 0;
         const double wb = 255 * (-0.168736 * r - 0.331264 * g + 0.5 * b), wr = 255 * (0.5 * r - 0.418688 * g - 0.081312 * b);
-        const double got_amp = hypot(cb, cr), want_amp = hypot(wb, wr);
+        const double got_amp = hypot(cb, cr), want_amp = hypot(wb, wr) * scale;
         if (want_amp < 1) {
             printf("  bar %d: Cb %+.1f Cr %+.1f (gray)\n", bar, cb, cr);
             CHECK(got_amp < 12, "%s: gray bar %d has colour (Cb %+.1f, Cr %+.1f)", name, bar, cb, cr);
@@ -350,15 +386,18 @@ static void check_colour(const char *name, double max_deg, double sat_tol)
 
 /* NTSC colour bars through the decoder with colour on, standard levels
  * (black at blanking, so the expected Cb/Cr are exact). slip_every > 0
- * duplicates a sample that often (the board: every ~530000 at 20 MS/s). */
+ * duplicates a sample that often (the board: every ~530000 at 20 MS/s).
+ * want_sat: 1 full colour, 0 gray (too noisy), else faded by the noise
+ * (saturation 0.15..0.85, the bars at that saturation). */
+static int s_weak_white = 40;   /* white level of the weak signal (burst = 0.2 x (white - 21)) */
 static void scenario_colour(const char *name, uint32_t fs, int noise, int clicks, int slip_every, double max_deg,
-                            double sat_tol)
+                            double sat_tol, double want_sat)
 {
     printf("%s\n", name);
     testpattern_t tp;
     video_t v;
     uint8_t *ring = slip_every ? s_src : s_ring;
-    const bool ok = (s_weak ? testpattern_init_levels(&tp, ring, RING, fs, false, 15, 21, 40, false)
+    const bool ok = (s_weak ? testpattern_init_levels(&tp, ring, RING, fs, false, 15, 21, s_weak_white, false)
                             : testpattern_init(&tp, ring, RING, fs, false)) && testpattern_set_colour(&tp, true);
     if (!ok) {
         printf("  FAIL: no memory\n");
@@ -380,26 +419,62 @@ static void scenario_colour(const char *name, uint32_t fs, int noise, int clicks
     else run(&tp, &v, 2.0, true);
     video_stats_t st;
     video_get_stats(&v, &st);
-    const double want_burst = 0.2 * (s_weak ? 40 - 21 : TP_WHITE - TP_BLANK);
+    const double want_burst = 0.2 * (s_weak ? s_weak_white - 21 : TP_WHITE - TP_BLANK);
     const uint32_t want_slips = slip_every ? (uint32_t)(2.0 * fs / slip_every) : 0;
-    printf("  locked h=%d v=%d colour=%d shown=%d burst=%.2f (want %.2f) slips=%u sum=%d (want ~%u) overruns=%u\n",
-           st.h_locked, st.v_locked, st.colour, st.colour_shown, st.burst_level, want_burst, st.slips, (int)st.slip_sum,
-           want_slips, st.overruns);
+    printf("  locked h=%d v=%d colour=%d shown=%d noisy=%d burst=%.2f (want %.2f) noise=%.1f deg sat=%.2f "
+           "slips=%u sum=%d (want ~%u) overruns=%u lock_losses=%u\n",
+           st.h_locked, st.v_locked, st.colour, st.colour_shown, st.colour_noisy, st.burst_level, want_burst,
+           st.burst_noise_deg, st.colour_sat, st.slips, (int)st.slip_sum, want_slips, st.overruns, st.lock_losses);
     CHECK(st.h_locked && st.v_locked, "%s: not locked", name);
-    CHECK(st.colour_shown, "%s: no colour", name);
-    CHECK(fabs(st.burst_level - want_burst) < 0.15 * want_burst, "%s: burst %.2f, want %.2f", name, st.burst_level, want_burst);
     CHECK(st.overruns == 0 && st.lock_losses == 0, "%s: %u overruns, %u lock losses", name, st.overruns, st.lock_losses);
+    save_pgm(name);
+    if (want_sat == 0) {
+        CHECK(!st.colour_shown && st.colour_noisy && s_last_fmt == VIDEO_FMT_GRAY, "%s: colour on a noisy picture", name);
+        /* The noise gone: full colour again within a few fields. */
+        const int cnoise = s_cnoise;
+        s_cnoise = 0;
+        run(&tp, &v, 0.2, true);
+        s_cnoise = cnoise;
+        video_get_stats(&v, &st);
+        printf("  noise gone: shown=%d noise=%.1f deg sat=%.2f frame %s\n", st.colour_shown, st.burst_noise_deg,
+               st.colour_sat, s_last_fmt == VIDEO_FMT_COLOUR ? "colour" : "gray");
+        CHECK(st.colour_shown && st.colour_sat == 1.0f && s_last_fmt == VIDEO_FMT_COLOUR, "%s: no colour after the noise", name);
+        testpattern_free(&tp);
+        return;
+    }
+    CHECK(st.colour_shown, "%s: no colour", name);
+    if (want_sat == 1) CHECK(st.colour_sat == 1.0f, "%s: saturation %.2f, want full", name, st.colour_sat);
+    else CHECK(st.colour_sat >= 0.15f && st.colour_sat <= 0.85f, "%s: saturation %.2f, want faded", name, st.colour_sat);
+    /* Noise biases the burst average and fakes slips. */
+    if (!s_cnoise)
+        CHECK(fabs(st.burst_level - want_burst) < 0.15 * want_burst, "%s: burst %.2f, want %.2f", name, st.burst_level, want_burst);
     if (slip_every) {
         /* Each slip counted once (a few may hide in the vertical interval). */
         CHECK(st.slips * 100 >= want_slips * 97 && st.slips * 100 <= want_slips * 101 + 200, "%s: %u slips counted, %u made",
               name, st.slips, want_slips);
         CHECK(abs((int)st.slip_sum - (int)want_slips) * 100 <= (int)want_slips * 3 + 200,
               "%s: %d duplicated minus dropped samples counted, %u made", name, (int)st.slip_sum, want_slips);
-    } else {
+    } else if (!s_cnoise) {
         CHECK(st.slips <= 1, "%s: %u slips without any", name, st.slips);
     }
-    check_colour(name, max_deg, sat_tol);
-    save_pgm(name);
+    check_colour(name, max_deg, sat_tol, st.colour_sat);
+    if (want_sat == 1 && !slip_every) {
+        /* The transmitter gone (snow, no line lock): gray, not colour
+         * confetti from the last reference (board 2026-10-26); colour back
+         * with the signal. */
+        s_snow = true;
+        run(&tp, &v, 0.3, false);
+        s_snow = false;
+        video_get_stats(&v, &st);
+        printf("  snow: locked h=%d shown=%d frame %s\n", st.h_locked, st.colour_shown,
+               s_last_fmt == VIDEO_FMT_COLOUR ? "colour" : "gray");
+        CHECK(!st.colour_shown && s_last_fmt == VIDEO_FMT_GRAY, "%s: colour on snow", name);
+        run(&tp, &v, 0.5, true);
+        video_get_stats(&v, &st);
+        printf("  signal back: locked h=%d v=%d shown=%d sat=%.2f\n", st.h_locked, st.v_locked, st.colour_shown,
+               st.colour_sat);
+        CHECK(st.h_locked && st.colour_shown && st.colour_sat == 1.0f, "%s: no colour after snow", name);
+    }
     testpattern_free(&tp);
 }
 
@@ -598,14 +673,28 @@ int main(void)
     /* Colour: clean, noisy, at 10 MS/s, with the board's weak levels, 5
      * bits and FM clicks, and with the board's clock slips (one sample
      * twice every 26.6 ms) and ten times more of them. */
-    scenario_colour("ntsc_20mhz_colour", 20000000, 0, 0, 0, 5, 0.12);
-    scenario_colour("ntsc_20mhz_colour_noise3", 20000000, 3, 0, 0, 6, 0.15);
-    scenario_colour("ntsc_10mhz_colour", 10000000, 0, 0, 0, 6, 0.15);
+    scenario_colour("ntsc_20mhz_colour", 20000000, 0, 0, 0, 5, 0.12, 1);
+    scenario_colour("ntsc_20mhz_colour_noise3", 20000000, 3, 0, 0, 6, 0.15, 1);
+    scenario_colour("ntsc_10mhz_colour", 10000000, 0, 0, 0, 6, 0.15, 1);
     s_weak = true;
     s_five_bit = true;
-    scenario_colour("ntsc_20mhz_colour_weak_5bit", 20000000, 3, 50, 0, 10, 0.25);
-    scenario_colour("ntsc_20mhz_colour_weak_5bit_slips", 20000000, 3, 50, 532000, 10, 0.25);
-    scenario_colour("ntsc_20mhz_colour_weak_5bit_slips10x", 20000000, 3, 50, 53200, 12, 0.25);
+    scenario_colour("ntsc_20mhz_colour_weak_5bit", 20000000, 3, 50, 0, 10, 0.25, 1);
+    scenario_colour("ntsc_20mhz_colour_weak_5bit_slips", 20000000, 3, 50, 532000, 10, 0.25, 1);
+    scenario_colour("ntsc_20mhz_colour_weak_5bit_slips10x", 20000000, 3, 50, 53200, 12, 0.25, 1);
+    /* A weak burst (2 codes, the board's live signal has 1.6-2.3) that is
+     * clean: full colour. */
+    s_weak_white = 31;
+    scenario_colour("ntsc_20mhz_colour_weakburst_5bit", 20000000, 1, 50, 0, 12, 0.3, 1);
+    /* The same burst with noise in the colour band (a weak FM signal, board
+     * 2026-10-20: burst 1.6-2.2 codes, colour confetti): some fades the
+     * colour, more turns it gray while the picture stays locked, and colour
+     * comes back with the noise gone. */
+    s_cnoise = 2;
+    scenario_colour("ntsc_20mhz_colour_weakburst_5bit_cnoise2", 20000000, 1, 50, 0, 15, 0.3, 0.5);
+    s_cnoise = 6;
+    scenario_colour("ntsc_20mhz_colour_weakburst_5bit_cnoise6", 20000000, 1, 50, 0, 0, 0, 0);
+    s_cnoise = 0;
+    s_weak_white = 40;
     s_weak = false;
     s_five_bit = false;
     scenario_no_colour("pal_20mhz_colour_on", true);
