@@ -1,0 +1,7 @@
+# Text files are stored with LF and checked out in the platform's style;
+# the images and recordings are left alone.
+* text=auto
+*.png binary
+*.jpg binary
+*.gif binary
+*.bin binary

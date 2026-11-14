@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# For the screen build check (CI, or by hand): the default build leaves
+# display.c out. Use with
+#   idf.py -B <dir> -D SDKCONFIG=<dir>/sdkconfig -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.ci.display" build
+CONFIG_BRIDGE_SPI_DISPLAY=y

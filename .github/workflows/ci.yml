@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Every push and pull request: the host tests (decoder, colour, mailbox,
+# counters, firmware/page/mock consistency) and both firmware builds with
+# the ESP-IDF version the receiver needs.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  host-tests:
+    name: Host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install ziglang
+      - run: python bridge/test/run_host_tests.py
+
+  firmware:
+    name: Firmware (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: bridge
+            path: bridge
+            target: esp32s3
+            command: idf.py build
+          # The optional SPI screen (display.c) is not part of the default build.
+          - name: bridge with the SPI screen
+            path: bridge
+            target: esp32s3
+            command: idf.py -B build_display -D SDKCONFIG=build_display/sdkconfig -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.ci.display" build
+          - name: receiver
+            path: receiver
+            target: esp32c5
+            command: idf.py build
+    steps:
+      - uses: actions/checkout@v7
+      - uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.0.2
+          target: ${{ matrix.target }}
+          path: ${{ matrix.path }}
+          command: ${{ matrix.command }}
