@@ -1,5 +1,7 @@
 # ESP-VRX
 
+[![CI](https://github.com/Iamethan1755/ESP-VRX/actions/workflows/ci.yml/badge.svg)](https://github.com/Iamethan1755/ESP-VRX/actions/workflows/ci.yml)
+
 Wi-Fi video for the [C5VRX](https://github.com/Twotoz/C5VRX) analog 5.8 GHz
 FPV receiver: an ESP32-S3 reads the receiver's video output, locks to the
 picture and streams it to a phone browser (or a PC over USB):
