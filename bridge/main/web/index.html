@@ -10,6 +10,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="ESP-VRX">
 <meta name="theme-color" content="#0b0d10">
+<link rel="icon" type="image/png" href="/icon.png">
+<link rel="apple-touch-icon" href="/icon.png">
 <title>ESP-VRX</title>
 <style>
   :root { --bg:#0b0d10; --panel:#161a20; --text:#e8eaed; --muted:#8b93a0; --ok:#3fb950; --bad:#f85149; --warn:#d29922; --btn:#232a33; --btn-active:#2f3945; }
@@ -29,6 +31,12 @@
   .screen.via-video canvas { visibility:hidden; }
   .screen img { position:absolute; inset:0; margin:auto; width:100%; height:100%; display:none; object-fit:fill; z-index:1; }
   .screen.img-mode img { display:block; }
+  /* No frame for a few seconds: the last one stays, dimmed, with a note (a
+   * frozen picture otherwise looks live). */
+  .screen.stale video, .screen.stale canvas { opacity:.3; }
+  .stalled { position:absolute; z-index:2; inset:0; display:none; align-items:center; justify-content:center; padding:0 16px;
+             text-align:center; font-weight:600; color:#fff; text-shadow:0 1px 3px #000; pointer-events:none; }
+  .screen.stale .stalled { display:flex; }
   .overlay { position:absolute; z-index:2; inset:auto 8px 8px 8px; display:flex; justify-content:space-between; font:12px/1.2 ui-monospace, Menlo, Consolas, monospace; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none; }
   /* Full screen: iPhone uses its native video player (like a YouTube video);
    * desktop, Android and iPad the browser's full screen; else the picture
@@ -93,6 +101,7 @@
     <video id="video" muted autoplay playsinline webkit-playsinline disablepictureinpicture aria-label="Live video from the C5VRX receiver"></video>
     <canvas id="canvas" width="384" height="288" aria-hidden="true"></canvas>
     <img id="mjpeg" alt="">
+    <div class="stalled" id="stalled" role="status">No video arriving</div>
     <div class="overlay"><span id="ov-left"></span><span id="ov-right"></span></div>
     <button class="fs-exit" id="fs-exit" aria-label="Exit full screen" title="Exit full screen">&#10005;</button>
   </div>
@@ -112,19 +121,19 @@
   <section class="settings" id="settings" hidden>
     <h2 class="section">Picture</h2>
     <div class="controls">
-      <button data-cmd="f" id="btn-filter" title="Median filter removes the white/black speckles (FM clicks)">Despeckle</button>
-      <button data-cmd="d" id="btn-denoise" title="Average still areas over frames; moving areas stay sharp">Denoise</button>
-      <button data-cmd="c" title="Auto contrast or standard levels">Levels</button>
-      <button data-cmd="m" id="btn-colour" title="Colour from the NTSC colour burst, or gray">Colour</button>
-      <button id="snap" title="Open the current frame as a JPEG">Snapshot</button>
+      <button data-cmd="f" id="btn-filter" aria-pressed="false" title="Median filter removes the white/black speckles (FM clicks)">Despeckle</button>
+      <button data-cmd="d" id="btn-denoise" aria-pressed="false" title="Average still areas over frames; moving areas stay sharp">Denoise</button>
+      <button data-cmd="c" id="btn-levels" title="Auto contrast, or standard levels from the sync pulse">Levels</button>
+      <button data-cmd="m" id="btn-colour" aria-pressed="false" title="Colour from the NTSC colour burst, or gray">Colour</button>
     </div>
     <h2 class="section">Picture position</h2>
     <div class="controls">
-      <button data-cmd="j" title="Move picture left">&#9664;</button>
-      <button data-cmd="l" title="Move picture right">&#9654;</button>
-      <button data-cmd="i" title="Move picture up">&#9650;</button>
-      <button data-cmd="k" title="Move picture down">&#9660;</button>
+      <button data-cmd="j" title="Move picture left" aria-label="Move picture left">&#9664;</button>
+      <button data-cmd="l" title="Move picture right" aria-label="Move picture right">&#9654;</button>
+      <button data-cmd="i" title="Move picture up" aria-label="Move picture up">&#9650;</button>
+      <button data-cmd="k" title="Move picture down" aria-label="Move picture down">&#9660;</button>
     </div>
+    <p class="hint">The bridge remembers the picture settings and position; <b>Defaults</b> below puts them back.</p>
     <h2 class="section">Receiver menu</h2>
     <div class="controls">
       <button data-c5="o" data-name="Menu" title="Open or close the receiver menu (shows in the video)">Menu</button>
@@ -132,15 +141,20 @@
       <button data-c5="x" data-name="Select" title="Menu: do the item">Select</button>
       <button data-c5="e" data-name="Close" title="Close the menu">Close</button>
       <button data-c5="v" data-name="Video std" title="Receiver video standard AUTO / NTSC / PAL">Video std</button>
-      <button data-cmd="t" title="C5 input / NTSC test pattern / PAL test pattern">Test pattern</button>
     </div>
     <p class="hint">Band, Channel, Auto and the menu keys go to the receiver over the key wire (S3 D0 &rarr; C5 D4); its channel, menu and scan results show in the picture.</p>
+    <h2 class="section">Tools</h2>
+    <div class="controls">
+      <button id="snap" title="Open the current frame as a JPEG">Snapshot</button>
+      <button data-cmd="t" id="btn-test" aria-pressed="false" title="C5 input / NTSC test pattern / PAL test pattern">Test pattern</button>
+      <button data-cmd="z" data-say="Picture settings are back to the defaults." title="Despeckle, denoise, levels, colour and position back to the defaults">Defaults</button>
+    </div>
     <details>
       <summary>Details</summary>
       <table id="details"></table>
     </details>
   </section>
-  <footer>Video decoded from a <a href="https://github.com/Twotoz/C5VRX">C5VRX</a> receiver (by Twotoz and the C5VRX contributors) and streamed by an ESP32-S3. ESP-VRX is an independent add-on, not part of or endorsed by C5VRX.</footer>
+  <footer><span id="version">ESP-VRX</span>: video decoded from a <a href="https://github.com/Twotoz/C5VRX">C5VRX</a> receiver (by Twotoz and the C5VRX contributors) and streamed by an ESP32-S3. ESP-VRX is an independent add-on, not part of or endorsed by C5VRX.</footer>
 </main>
 <script>
 (() => {
@@ -170,7 +184,7 @@
   video.addEventListener('webkitendfullscreen', playVideo);
   playVideo();
 
-  let latest = null, decoding = false, shown = 0, everDrawn = false, imgMode = false, abort = null, reader = null;
+  let latest = null, decoding = false, shown = 0, shownAt = 0, everDrawn = false, imgMode = false, abort = null, reader = null;
   let parts = 0, firstPart = 0, failures = 0, lastData = 0, running = false, stopping = false;
   function drawNewest() {
     if (decoding || !latest) return;
@@ -178,7 +192,7 @@
     latest = null;
     decoding = true;
     const done = () => { decoding = false; drawNewest(); };
-    const paint = src => { ctx.drawImage(src, 0, 0, canvas.width, canvas.height); shown++; everDrawn = true; };
+    const paint = src => { ctx.drawImage(src, 0, 0, canvas.width, canvas.height); shown++; shownAt = Date.now(); everDrawn = true; };
     if (window.createImageBitmap) {
       createImageBitmap(blob).then(bmp => { paint(bmp); if (bmp.close) bmp.close(); }).catch(() => {}).finally(done);
     } else {
@@ -284,6 +298,11 @@
    * slot (it has three); back in front it reconnects at once. */
   document.addEventListener('visibilitychange', () => (document.hidden ? restart() : runStream()));
   runStream();
+  /* The picture stopped (bridge off, out of range, stream lost): after 2.5 s
+   * without a new frame the last one is dimmed under a note. */
+  setInterval(() => {
+    view.classList.toggle('stale', !imgMode && !document.hidden && everDrawn && Date.now() - shownAt > 2500);
+  }, 500);
   /* The browser's own MJPEG <img> instead when this way cannot work: the
    * bridge streams (status fps > 0) but three connections in a row brought
    * no frame, or frames came for 6 s and none could be drawn. No native
@@ -303,9 +322,6 @@
     start();
   };
 
-  document.querySelectorAll('button[data-cmd]').forEach(b => {
-    b.addEventListener('click', () => fetch('/cmd?c=' + b.dataset.cmd).then(poll).catch(() => {}));
-  });
   const toast = document.getElementById('toast');
   let toastTimer = null;
   const say = msg => {
@@ -313,6 +329,12 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { toast.textContent = ''; }, 3500);
   };
+  document.querySelectorAll('button[data-cmd]').forEach(b => {
+    b.addEventListener('click', () => fetch('/cmd?c=' + b.dataset.cmd)
+      .then(r => { if (!r.ok) say('The bridge did not accept that.'); else if (b.dataset.say) say(b.dataset.say); })
+      .catch(() => say('Bridge not reachable.'))
+      .finally(poll));
+  });
   const NOT_LISTENING = 'The receiver is not listening on the key wire (S3 D0 to C5 D4; u on the console checks it).';
   document.querySelectorAll('button[data-c5]').forEach(b => {
     b.addEventListener('click', () => fetch('/c5?k=' + b.dataset.c5)
@@ -437,6 +459,7 @@
 
   const badge = document.getElementById('badge');
   const rows = [
+    ['Firmware', s => s.version || '?'],
     ['Source', s => ({ c5: 'C5 receiver', 'test-ntsc': 'Test pattern NTSC', 'test-pal': 'Test pattern PAL' }[s.source] || s.source)],
     ['Line sync / field sync', s => `${s.h_locked ? 'locked' : 'searching'} / ${s.v_locked ? 'locked' : 'searching'}`],
     ['Standard', s => `${s.std}, ${s.lines_per_field} lines per field, ${s.line_us.toFixed(2)} µs lines`],
@@ -445,6 +468,7 @@
     ['Colour', s => !s.colour ? 'off' : `${s.colour_noisy ? 'too noisy (gray)' : s.colour_shown ? `shown${s.colour_sat < 1 ? `, saturation ${Math.round(s.colour_sat * 100)} %` : ''}` : 'no colour burst'}, burst ${(s.burst || 0).toFixed(1)} codes, noise ${Math.round(s.burst_noise || 0)}°, ${s.slips || 0} clock slips (${(s.clock_ppm || 0) >= 0 ? '+' : ''}${(s.clock_ppm || 0).toFixed(2)} ppm)`],
     ['Input rate / decode load', s => `${s.msps.toFixed(2)} MS/s, ${Math.round(s.load * 100)} %`],
     ['Stream', s => `${s.fps.toFixed(1)} fps, ${(s.jpeg_bytes / 1024).toFixed(1)} KB/frame, ${s.clients} viewer(s), ${s.stations} on Wi-Fi`],
+    ['Delay inside the bridge', s => `${(s.pipe_ms || 0).toFixed(0)} ms (longest ${(s.pipe_max_ms || 0).toFixed(0)} ms), last line to JPEG`],
     ['Fields / overruns / lock losses', s => `${s.fields} / ${s.overruns} / ${s.lock_losses}`],
     ['Receiver keys sent', s => `${s.c5_keys}`],
     ['Free RAM internal / PSRAM', s => `${(s.heap_int / 1024).toFixed(0)} KB / ${(s.heap_psram / 1024).toFixed(0)} KB`],
@@ -455,30 +479,60 @@
 
   let shownRate = 0, shownLast = 0;
   setInterval(() => { shownRate = shown - shownLast; shownLast = shown; }, 1000);
+  const toggle = (id, on, label) => {
+    const b = document.getElementById(id);
+    b.textContent = `${label} ${on ? 'on' : 'off'}`;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  };
+  const showStatus = s => {
+    let text = 'NO SIGNAL', cls = 'bad';
+    if (!s.capture_ok) { text = 'CAPTURE FAULT'; }
+    else if (s.h_locked && s.v_locked) { text = s.source === 'c5' ? `LIVE ${s.std}` : `TEST ${s.std}`; cls = 'ok'; }
+    else if (s.h_locked) { text = 'NO FIELD SYNC'; cls = 'warn'; }
+    badge.textContent = text; badge.className = 'badge ' + cls;
+    document.getElementById('ov-left').textContent = text;
+    document.getElementById('ov-right').textContent = `${imgMode ? s.fps.toFixed(0) : shownRate} fps`;
+    rows.forEach(([, f], i) => {
+      let value = '';
+      try { value = f(s); } catch (e) { /* a field this firmware does not send */ }
+      document.getElementById('r' + i).textContent = value;
+    });
+    if (typeof s.c5_channel === 'number') syncTuned(s.c5_channel);
+    checkFallback(s);
+    toggle('btn-filter', s.filter === 'median', 'Despeckle');
+    toggle('btn-denoise', !!s.denoise, 'Denoise');
+    toggle('btn-colour', !!s.colour, 'Colour');
+    document.getElementById('btn-levels').textContent = s.levels === 'auto' ? 'Levels auto' : 'Levels std';
+    const test = s.source !== 'c5', bt = document.getElementById('btn-test');
+    bt.classList.toggle('on', test);
+    bt.setAttribute('aria-pressed', String(test));
+    if (s.version) document.getElementById('version').textContent = `ESP-VRX ${s.version}`;
+  };
+  const showOffline = () => {
+    badge.textContent = 'offline'; badge.className = 'badge bad';
+    document.getElementById('ov-left').textContent = 'OFFLINE';
+    document.getElementById('ov-right').textContent = `${shownRate} fps`;
+  };
+  /* One status request at a time, given up after 3 s: a request that never
+   * answers (the bridge busy or out of range) once left the badge on
+   * "connecting" while the picture played, with more requests piling up
+   * behind it every second. A poll asked for meanwhile runs right after. */
+  let polling = false, pollAgain = false;
   function poll() {
-    return fetch('/status', { cache: 'no-store' }).then(r => r.json()).then(s => {
-      let text = 'NO SIGNAL', cls = 'bad';
-      if (!s.capture_ok) { text = 'CAPTURE FAULT'; }
-      else if (s.h_locked && s.v_locked) { text = s.source === 'c5' ? `LIVE ${s.std}` : `TEST ${s.std}`; cls = 'ok'; }
-      else if (s.h_locked) { text = 'NO FIELD SYNC'; cls = 'warn'; }
-      badge.textContent = text; badge.className = 'badge ' + cls;
-      document.getElementById('ov-left').textContent = text;
-      document.getElementById('ov-right').textContent = `${imgMode ? s.fps.toFixed(0) : shownRate} fps`;
-      rows.forEach(([, f], i) => { document.getElementById('r' + i).textContent = f(s); });
-      if (typeof s.c5_channel === 'number') syncTuned(s.c5_channel);
-      checkFallback(s);
-      const bf = document.getElementById('btn-filter'), bd = document.getElementById('btn-denoise');
-      bf.textContent = s.filter === 'median' ? 'Despeckle on' : 'Despeckle off';
-      bf.classList.toggle('on', s.filter === 'median');
-      bd.textContent = s.denoise ? 'Denoise on' : 'Denoise off';
-      bd.classList.toggle('on', !!s.denoise);
-      const bc = document.getElementById('btn-colour');
-      bc.textContent = s.colour ? 'Colour on' : 'Colour off';
-      bc.classList.toggle('on', !!s.colour);
-    }).catch(() => {
-      badge.textContent = 'offline'; badge.className = 'badge bad';
-      document.getElementById('ov-left').textContent = 'OFFLINE';
-      document.getElementById('ov-right').textContent = `${shownRate} fps`;
+    if (polling) { pollAgain = true; return; }
+    polling = true;
+    const ctl = window.AbortController ? new AbortController() : null;
+    let timer = 0;
+    const timeout = new Promise((resolve, reject) => {
+      timer = setTimeout(() => { if (ctl) ctl.abort(); reject(new Error('no answer')); }, 3000);
+    });
+    const status = fetch('/status', ctl ? { cache: 'no-store', signal: ctl.signal } : { cache: 'no-store' })
+      .then(r => { if (!r.ok) throw new Error('status ' + r.status); return r.json(); });
+    Promise.race([status, timeout]).then(showStatus, showOffline).then(() => {
+      clearTimeout(timer);
+      polling = false;
+      if (pollAgain) { pollAgain = false; poll(); }
     });
   }
   poll();
