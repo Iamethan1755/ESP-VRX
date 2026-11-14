@@ -5,8 +5,8 @@
  * or a separate wire (S3 D8 -> 1 kOhm -> C5 GPIO2, the MTMS pad on the
  * back of the XIAO ESP32-C5). The line is driven
  * only while a frame goes out and released in between, so an unpowered C5
- * gets no current from it. The receiving side is in receiver/main/console.c
- * on the wifi-bridge branch. */
+ * gets no current from it. The receiving side is bridge_key_task() in
+ * receiver/main/console.c (see receiver/UPSTREAM.md). */
 #pragma once
 #include <stdbool.h>
 #include <stddef.h>
@@ -19,7 +19,8 @@
 #define C5LINK_KEYS "ocbsnxve"
 
 esp_err_t c5link_init(void);
-/* Sends one key; false for keys the receiver would not accept. */
+/* Sends one key; false for a key that is not in C5LINK_KEYS, and when the
+ * receiver is not listening (c5link_listening): nothing is sent then. */
 bool c5link_send(char key);
 uint32_t c5link_sent(void);
 /* Tunes the receiver straight to one channel: index = band * 8 + channel,
@@ -32,6 +33,7 @@ int c5link_channel(void);
 /* True when the released key line sits high: the receiver listens on it.
  * Keys are not sent otherwise (see c5link.c line_free). */
 bool c5link_listening(void);
-/* Checks that the TX pin really toggles (sends unframed bytes the
- * receiver ignores). Safe with the C5 attached. */
+/* Checks the wire (the receiver's pull-up on the released line) and that
+ * the TX pin really toggles (unframed bytes the receiver ignores), into
+ * `out` as one line. Safe with the C5 attached. */
 esp_err_t c5link_selftest(char *out, size_t len);

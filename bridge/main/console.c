@@ -24,7 +24,8 @@ static const char *HELP =
     "  s  status            t  next source (C5 / NTSC test / PAL test)\n"
     "  c  levels auto/std   j l  picture left/right   i k  picture up/down\n"
     "  f  despeckle median/smooth                     d  denoise on/off\n"
-    "  m  colour on/off (NTSC)\n"
+    "  m  colour on/off (NTSC)                        z  picture settings back to defaults\n"
+    "     (c j l i k f d m are stored and come back at the next start)\n"
     "  R  raw sample dump   F  current JPEG frame     L  loopback self-test\n"
     "  w  Wi-Fi details     G  capture diagnostics    h  this help\n"
     "  C<k>  send receiver key k to the C5 (c channel, b band, s scan, o menu,\n"
@@ -66,23 +67,28 @@ static void print_status(void)
 #ifdef CONFIG_BRIDGE_SPI_DISPLAY
     snprintf(lcd, sizeof lcd, " lcd_fps=%.1f", display_fps());
 #endif
-    printf("STATUS source=%s capture=%s h_lock=%d v_lock=%d std=%s lines/field=%d line_us=%.3f "
-           "sync=%.1f blank=%.1f map=%.1f..%.1f levels=%s filter=%s denoise=%d colour=%s burst=%.2f bnoise=%.0fdeg sat=%.2f slips=%lu clock=%+.2fppm "
-           "fields=%lu overruns=%lu lock_losses=%lu "
-           "h_offset=%.1fus v_offset=%d rate=%.2fMS/s load=%.0f%% line_us drawn=%.1f skipped=%.1f pass_max=%luus gap_max=%luus line_max=%luus(kind %lu) fps=%.1f%s jpeg=%lu enc_ms=%.1f+%.1f+%.1f clients=%d wifi=" CONFIG_BRIDGE_WIFI_SSID " stations=%d "
+    printf("STATUS fw=%s source=%s capture=%s h_lock=%d v_lock=%d std=%s lines/field=%d line_us=%.3f "
+           "sync=%.1f blank=%.1f map=%.1f..%.1f levels=%s filter=%s denoise=%d colour=%s burst=%.2f bnoise=%.0fdeg "
+           "sat=%.2f slips=%lu clock=%+.2fppm "
+           "fields=%lu overruns=%lu catchups=%lu lock_losses=%lu "
+           "h_offset=%.1fus v_offset=%d rate=%.2fMS/s load=%.0f%% line_us drawn=%.1f skipped=%.1f pass_max=%luus "
+           "gap_max=%luus line_max=%luus(kind %lu) fps=%.1f%s jpeg=%lu enc_ms=%.1f+%.1f+%.1f pipe_ms=%.1f(max %.1f) "
+           "clients=%d wifi=" CONFIG_BRIDGE_WIFI_SSID " stations=%d "
            "heap_int=%lu heap_psram=%lu up=%lus reset=%s\n",
-           bridge_source_name(s.source), s.capture_ok ? "ok" : "FAIL", v->h_locked, v->v_locked,
+           bridge_version(), bridge_source_name(s.source), s.capture_ok ? "ok" : "FAIL", v->h_locked, v->v_locked,
            v->std == VIDEO_STD_PAL ? "PAL" : "NTSC", v->lines_per_field, v->line_us, v->sync_level,
            v->blank_level, v->black_level, v->white_level, v->levels == VIDEO_LEVELS_AUTO ? "auto" : "std",
            v->filter == VIDEO_FILTER_MEDIAN ? "median" : "smooth", (int)stream_denoise(),
            !v->colour ? "off" : v->colour_noisy ? "noisy" : !v->colour_shown ? "no-burst" : v->colour_simd ? "on" : "on(no-simd)",
            v->burst_level, v->burst_noise_deg, v->colour_sat, (unsigned long)v->slips, s.clock_ppm,
-           (unsigned long)v->fields, (unsigned long)v->overruns, (unsigned long)v->lock_losses,
+           (unsigned long)v->fields, (unsigned long)v->overruns, (unsigned long)v->catchups,
+           (unsigned long)v->lock_losses,
            v->h_offset_tenths_us / 10.0, v->v_offset_lines, s.sample_msps, s.decode_load * 100, s.drawn_line_us,
            s.skipped_line_us,
            (unsigned long)s.max_pass_us, (unsigned long)s.max_gap_us, (unsigned long)s.max_line_us,
            (unsigned long)s.max_line_kind, s.fps, lcd,
-           (unsigned long)s.jpeg_bytes, nr_ms, conv_ms, jpeg_ms, s.clients, s.stations, (unsigned long)s.heap_internal, (unsigned long)s.heap_psram,
+           (unsigned long)s.jpeg_bytes, nr_ms, conv_ms, jpeg_ms, s.pipe_ms, s.pipe_max_ms, s.clients, s.stations,
+           (unsigned long)s.heap_internal, (unsigned long)s.heap_psram,
            (unsigned long)s.uptime_s, bridge_reset_reason());
 }
 
@@ -239,6 +245,7 @@ static void selftest(void)
 static void console_task(void *arg)
 {
     (void)arg;
+    printf("ESP-VRX %s\n", bridge_version());
     puts(HELP);
     for (;;) {
         char c = read_key();
@@ -259,7 +266,9 @@ static void console_task(void *arg)
         }
         case 'C': {
             const char k = read_key();
-            printf(c5link_send(k) ? "C5 <- %c\n" : "C5 key %c not accepted (keys: " C5LINK_KEYS ")\n", k);
+            if (!k || !strchr(C5LINK_KEYS, k)) printf("C5 key %c unknown (keys: " C5LINK_KEYS ")\n", k);
+            else if (c5link_send(k)) printf("C5 <- %c\n", k);
+            else printf("C5 key %c not sent: the receiver is not listening on the key line (u checks it)\n", k);
             break;
         }
         case '#': {   /* like the page's Band/Channel pickers (/c5?ch=NN) */

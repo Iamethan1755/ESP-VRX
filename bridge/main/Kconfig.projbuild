@@ -8,11 +8,18 @@ menu "ESP-VRX"
     config BRIDGE_WIFI_PASSWORD
         string "Wi-Fi password (8+ characters, empty for an open network)"
         default "vrxbridge"
+        help
+            The default is public (it is in the README): anyone nearby can
+            watch and change channels. Set your own for anything but the
+            bench.
 
     config BRIDGE_WIFI_CHANNEL
         int "2.4 GHz Wi-Fi channel"
         range 1 13
         default 1
+        help
+            1, 6 or 11 (the channels that do not overlap). Phones barely use
+            12 and 13.
 
     config BRIDGE_WIFI_TX_POWER_DBM
         int "Wi-Fi transmit power (dBm)"
@@ -27,8 +34,9 @@ menu "ESP-VRX"
         default BRIDGE_SAMPLE_20MHZ
         help
             The C5 outputs 20 MS/s of unique samples (each repeated at 40 MHz).
-            20 MHz sees every one, so the 5-tap median despeckle filter gets
-            enough samples per pixel; 10 MHz halves memory traffic and load.
+            20 MHz sees every one: the despeckle filter gets samples 0.1 us
+            apart and the colour decoder its 16-sample blocks (SIMD). 10 MHz
+            halves the decoder's load; colour then runs in plain C.
         config BRIDGE_SAMPLE_10MHZ
             bool "10 MHz"
         config BRIDGE_SAMPLE_20MHZ
@@ -64,10 +72,11 @@ menu "ESP-VRX"
         default y
         help
             The keys (band, channel, scan, menu) go to the C5 over the wire of
-            video bit 0 (S3 D0 to C5 D4): the receiver (wifi-bridge branch,
-            BRIDGE_KEYS_ON_D4) then listens on D4 instead of outputting bit 0,
-            and the video arrives with 5 bits. Off: a separate wire from
-            BRIDGE_GPIO_C5_TX through 1 kOhm to the C5's GPIO2 pad (back side).
+            video bit 0 (S3 D0 to C5 D4): the receiver (this repo's receiver/,
+            BRIDGE_KEYS_ON_D4 in its receiver.h) then listens on D4 instead of
+            outputting bit 0, and the video arrives with 5 bits. Off: a
+            separate wire from BRIDGE_GPIO_C5_TX through 1 kOhm to the C5's
+            GPIO2 pad (back side), and BRIDGE_KEYS_ON_D4 0 in receiver.h.
 
     config BRIDGE_GPIO_C5_TX
         int "GPIO sending menu/channel keys to the C5 (UART TX)"
@@ -76,7 +85,7 @@ menu "ESP-VRX"
         help
             Wire this pin (D8 on the XIAO ESP32-S3) through a 1 kOhm resistor
             to GPIO2 of the XIAO ESP32-C5 (the MTMS pad on its back). The
-            receiver needs the wifi-bridge branch of C5VRX in receiver/.
+            receiver needs this repo's receiver/ build.
             D8 is also the SPI screen's clock: with BRIDGE_SPI_DISPLAY, move
             one of them.
 
@@ -99,13 +108,14 @@ menu "ESP-VRX"
         default 60
 
     config BRIDGE_COLOUR
-        bool "Colour (NTSC) at boot"
+        bool "Colour (NTSC) by default"
         default y
         help
             Decode the NTSC colour burst and chroma: fields with a burst come
             out in colour (YCbYCr, JPEG 4:2:0), the others in gray. The
-            console's m key and the page's Colour button switch it at run time.
-            See docs/colour-study.md.
+            console's m key and the page's Colour button switch it at run
+            time, and that choice is stored: this is only the setting of a
+            fresh board (and after the console's z). See docs/colour-study.md.
 
     config BRIDGE_TEST_PATTERN_AT_BOOT
         bool "Start with the NTSC test pattern instead of the C5 input"

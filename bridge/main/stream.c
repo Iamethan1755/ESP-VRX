@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Wi-Fi access point, web page and MJPEG stream, see stream.h.
  *
- * Port 80: the page, /status (JSON), /cmd?c=X (picture commands) and
- * /snapshot.jpg. Port 81: /stream, multipart MJPEG. Each viewer gets its
+ * Port 80: the page, /status (JSON), /cmd?c=X (picture commands), /c5
+ * (receiver keys), /snapshot.jpg, the page's icon and /bench. Port 81:
+ * /stream, multipart MJPEG. Each viewer gets its
  * own task (async request), wakes on a notification when a JPEG is ready
  * and sends it as one write on a TCP_NODELAY socket: no polling delay, no
  * chunk framing, no Nagle hold-back of a frame's last bytes. */
@@ -29,7 +30,6 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lwip/sockets.h"
-#include "nvs_flash.h"
 
 #define JPEG_MAX (96 * 1024)
 #define BOUNDARY "vrxframe"
@@ -37,6 +37,8 @@
 
 static const char *TAG = "stream";
 extern const char index_html[] asm("_binary_index_html_start");
+extern const uint8_t icon_png_start[] asm("_binary_icon_png_start");
+extern const uint8_t icon_png_end[] asm("_binary_icon_png_end");
 
 static SemaphoreHandle_t s_lock;
 static TaskHandle_t s_encoder;
@@ -47,6 +49,7 @@ static volatile int s_clients;
 static float s_fps;
 static uint32_t s_frames;
 static float s_ms_nr, s_ms_conv, s_ms_jpeg;   /* encoder task per frame: denoise, YCbYCr bands, JPEG */
+static float s_ms_pipe, s_ms_pipe_max;        /* a frame's last line decoded -> its JPEG published */
 static esp_netif_t *s_ap_netif;
 
 /* Per-viewer delivery for the console's w: new frames that went out,
@@ -93,10 +96,10 @@ static mbox_t s_mbox;
 static volatile TaskHandle_t s_display;   /* set by the display task once its panel is up */
 #endif
 
-uint8_t *stream_submit(uint8_t *fb, int w, int h, video_fmt_t fmt)
+uint8_t *stream_submit(uint8_t *fb, int w, int h, video_fmt_t fmt, uint32_t t_us)
 {
     portENTER_CRITICAL(&s_mbox_mux);
-    uint8_t *next = mbox_submit(&s_mbox, fb, w, h, (int)fmt);
+    uint8_t *next = mbox_submit(&s_mbox, fb, w, h, (int)fmt, t_us);
     portEXIT_CRITICAL(&s_mbox_mux);
     if (next != fb && s_encoder) xTaskNotifyGive(s_encoder);
 #ifdef CONFIG_BRIDGE_SPI_DISPLAY
@@ -105,11 +108,11 @@ uint8_t *stream_submit(uint8_t *fb, int w, int h, video_fmt_t fmt)
     return next;
 }
 
-static uint8_t *frame_take(int reader, int *w, int *h, video_fmt_t *fmt)
+static uint8_t *frame_take(int reader, int *w, int *h, video_fmt_t *fmt, uint32_t *t_us)
 {
     int f = VIDEO_FMT_GRAY;
     portENTER_CRITICAL(&s_mbox_mux);
-    uint8_t *fb = mbox_take(&s_mbox, reader, w, h, &f);
+    uint8_t *fb = mbox_take(&s_mbox, reader, w, h, &f, t_us);
     portEXIT_CRITICAL(&s_mbox_mux);
     *fmt = f == VIDEO_FMT_COLOUR ? VIDEO_FMT_COLOUR : VIDEO_FMT_GRAY;
     return fb;
@@ -125,7 +128,10 @@ static void frame_release(const uint8_t *fb)
 #ifdef CONFIG_BRIDGE_SPI_DISPLAY
 void stream_display_attach(void) { s_display = xTaskGetCurrentTaskHandle(); }
 
-const uint8_t *stream_display_take(int *w, int *h, video_fmt_t *fmt) { return frame_take(READER_DISPLAY, w, h, fmt); }
+const uint8_t *stream_display_take(int *w, int *h, video_fmt_t *fmt)
+{
+    return frame_take(READER_DISPLAY, w, h, fmt, NULL);
+}
 
 void stream_display_release(const uint8_t *fb) { frame_release(fb); }
 #endif
@@ -133,6 +139,7 @@ void stream_display_release(const uint8_t *fb) { frame_release(fb); }
 /* Temporal denoise state (encoder task only, plus the on/off switch). */
 static uint8_t *s_nr;
 static volatile bool s_nr_on;
+static volatile bool s_nr_restart;   /* the switch was used: the running picture starts anew */
 static bool s_nr_valid;
 static int s_nr_h;
 static video_fmt_t s_nr_fmt;
@@ -180,8 +187,10 @@ static void planes_band(uint8_t *dst, const uint8_t *src, uint8_t *nr, bool firs
 
 void stream_set_denoise(bool on)
 {
-    s_nr_valid = false;
+    /* Called from other tasks: the encoder task owns s_nr_valid and takes
+     * the request at its next frame. */
     s_nr_on = on && s_nr;
+    s_nr_restart = true;
 }
 
 bool stream_denoise(void) { return s_nr_on; }
@@ -192,15 +201,20 @@ static void encoder_task(void *arg)
     jpeg_enc_handle_t enc = NULL;
     int enc_w = 0, enc_h = 0;
     video_fmt_t enc_fmt = VIDEO_FMT_GRAY;
-    int64_t window = esp_timer_get_time(), us_nr = 0, us_conv = 0, us_jpeg = 0;
-    uint32_t count = 0;
+    int64_t window = esp_timer_get_time(), us_nr = 0, us_conv = 0, us_jpeg = 0, us_pipe = 0, last_error = 0;
+    uint32_t count = 0, pipe_max = 0, failed = 0;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         int w, h;
         video_fmt_t fmt;
-        uint8_t *fb = frame_take(READER_JPEG, &w, &h, &fmt);
+        uint32_t t_frame = 0;
+        uint8_t *fb = frame_take(READER_JPEG, &w, &h, &fmt, &t_frame);
         if (!fb) continue;
         const int64_t t0 = esp_timer_get_time();
+        if (s_nr_restart) {
+            s_nr_restart = false;
+            s_nr_valid = false;
+        }
         if (!enc || enc_w != w || enc_h != h || enc_fmt != fmt) {
             if (enc) jpeg_enc_close(enc);
             enc = NULL;
@@ -270,7 +284,21 @@ static void encoder_task(void *arg)
         }
         us_jpeg += esp_timer_get_time() - t1;
         if (fb) frame_release(fb);
-        if (err != JPEG_ERR_OK || out_len <= 0) continue;
+        if (err != JPEG_ERR_OK || out_len <= 0) {
+            /* A frame that does not fit JPEG_MAX or an encoder fault: say so
+             * (once a second at most) and let the lower tasks run, also when
+             * every frame fails. */
+            failed++;
+            const int64_t now = esp_timer_get_time();
+            if (now - last_error >= 1000000) {
+                ESP_LOGE(TAG, "JPEG encoding failed (error %d, %d bytes): %lu frame(s) dropped", (int)err, out_len,
+                         (unsigned long)failed);
+                last_error = now;
+                failed = 0;
+            }
+            vTaskDelay(1);
+            continue;
+        }
 
         xSemaphoreTake(s_lock, portMAX_DELAY);
         uint8_t *t = s_jpeg;
@@ -280,6 +308,9 @@ static void encoder_task(void *arg)
         s_seq++;
         xSemaphoreGive(s_lock);
         notify_viewers();
+        const uint32_t age = (uint32_t)esp_timer_get_time() - t_frame;   /* low 32 bits: wraps like t_frame */
+        us_pipe += age;
+        if (age > pipe_max) pipe_max = age;
         /* One tick for the idle task (task watchdog) and the low-priority
          * mDNS task: with a noisy picture the encoder runs back to back.
          * After the publish, so the frame does not wait for it. */
@@ -292,7 +323,10 @@ static void encoder_task(void *arg)
             s_ms_nr = count ? us_nr / 1000.0f / count : 0;
             s_ms_conv = count ? us_conv / 1000.0f / count : 0;
             s_ms_jpeg = count ? (us_jpeg - us_conv) / 1000.0f / count : 0;
-            us_nr = us_conv = us_jpeg = 0;
+            s_ms_pipe = count ? us_pipe / 1000.0f / count : 0;
+            s_ms_pipe_max = pipe_max / 1000.0f;
+            us_nr = us_conv = us_jpeg = us_pipe = 0;
+            pipe_max = 0;
             s_frames += count;
             count = 0;
             window = now;
@@ -332,6 +366,12 @@ void stream_timing(float *nr_ms, float *conv_ms, float *jpeg_ms)
     *jpeg_ms = s_ms_jpeg;
 }
 
+void stream_latency(float *mean_ms, float *max_ms)
+{
+    *mean_ms = s_ms_pipe;
+    *max_ms = s_ms_pipe_max;
+}
+
 void stream_stats(float *fps, uint32_t *jpeg_bytes, uint32_t *frames, int *clients)
 {
     *fps = s_fps;
@@ -348,6 +388,44 @@ int stream_wifi_stations(void)
 
 /* ---- HTTP ---- */
 
+/* The page server (port 80) handles one request at a time in one task: a
+ * handler that hangs stops the page's buttons and status while the video
+ * (port 81, its own tasks) plays on. Every handler runs through timed(),
+ * so the console's w shows what the server is doing and how long its
+ * slowest request took. */
+typedef struct {
+    esp_err_t (*handler)(httpd_req_t *req);
+    const char *name;
+} page_handler_t;
+static portMUX_TYPE s_http_mux = portMUX_INITIALIZER_UNLOCKED;   /* the console reads these from its task */
+static const char *s_http_busy;   /* the handler running now, NULL when idle */
+static int64_t s_http_since, s_http_last;
+static uint32_t s_http_count, s_http_max_us;
+static const char *s_http_max_name;
+
+static esp_err_t timed(httpd_req_t *req)
+{
+    const page_handler_t *h = req->user_ctx;
+    const int64_t since = esp_timer_get_time();
+    portENTER_CRITICAL(&s_http_mux);
+    s_http_since = since;
+    s_http_busy = h->name;
+    portEXIT_CRITICAL(&s_http_mux);
+    const esp_err_t err = h->handler(req);
+    const int64_t now = esp_timer_get_time();
+    const uint32_t dt = (uint32_t)(now - since);
+    portENTER_CRITICAL(&s_http_mux);
+    if (dt > s_http_max_us) {
+        s_http_max_us = dt;
+        s_http_max_name = h->name;
+    }
+    s_http_busy = NULL;
+    s_http_last = now;
+    s_http_count++;
+    portEXIT_CRITICAL(&s_http_mux);
+    return err;
+}
+
 static esp_err_t index_get(httpd_req_t *req)
 {
     printf("HTTP page requested\n");
@@ -357,9 +435,18 @@ static esp_err_t index_get(httpd_req_t *req)
     return httpd_resp_send(req, index_html, HTTPD_RESP_USE_STRLEN);
 }
 
+/* The page's icon (tab, home screen): also under the names browsers ask
+ * for by themselves, which otherwise log a 404 each. */
+static esp_err_t icon_get(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "image/png");
+    httpd_resp_set_hdr(req, "Cache-Control", "max-age=86400");
+    return httpd_resp_send(req, (const char *)icon_png_start, icon_png_end - icon_png_start);
+}
+
 static esp_err_t status_get(httpd_req_t *req)
 {
-    char buf[1536];
+    static char buf[2048];   /* only the page server's one task comes here */
     int n = bridge_status_json(buf, sizeof buf);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
@@ -617,12 +704,15 @@ static httpd_handle_t start_server(uint16_t port, uint16_t ctrl_port, const http
     cfg.stack_size = 6144;
     cfg.lru_purge_enable = true;
     cfg.max_open_sockets = 4;
+    cfg.max_uri_handlers = 12;
     httpd_handle_t h = NULL;
     if (httpd_start(&h, &cfg) != ESP_OK) {
         ESP_LOGE(TAG, "HTTP server on port %u failed", port);
         return NULL;
     }
-    for (size_t k = 0; k < n; k++) httpd_register_uri_handler(h, &uris[k]);
+    for (size_t k = 0; k < n; k++) {
+        if (httpd_register_uri_handler(h, &uris[k]) != ESP_OK) ESP_LOGE(TAG, "no handler slot for %s", uris[k].uri);
+    }
     return h;
 }
 
@@ -671,44 +761,28 @@ void stream_print_wifi(void)
                v.skipped / sec, v.bytes / 1024.0f / sec, v.sent ? v.send_us_sum / 1000.0f / v.sent : 0.0f,
                v.send_us_max / 1000.0f);
     }
+    /* The page server: a page that is open asks for /status every second. */
+    portENTER_CRITICAL(&s_http_mux);
+    const int64_t last = s_http_last, since = s_http_since;
+    const char *busy = s_http_busy, *slowest = s_http_max_name;
+    const uint32_t count = s_http_count, max_us = s_http_max_us;
+    portEXIT_CRITICAL(&s_http_mux);
+    const int64_t now = esp_timer_get_time();
+    printf("HTTP page server: %lu requests", (unsigned long)count);
+    if (last) printf(", last %.1f s ago", (now - last) / 1e6);
+    if (slowest) printf(", slowest %.0f ms (%s)", max_us / 1000.0, slowest);
+    if (busy) printf(", BUSY for %.1f s in %s", (now - since) / 1e6, busy);
+    printf("\n");
 }
 
-/* The bridge once had a home Wi-Fi option (AP+STA): erase a network it
- * stored, ours ("bridge" sta_ssid/sta_pass) and the driver's copy, once. */
-static void forget_old_home_wifi(void)
-{
-    nvs_handle_t h;
-    if (nvs_open("bridge", NVS_READWRITE, &h) != ESP_OK) return;
-    size_t n = 0;
-    const bool stored = nvs_get_str(h, "sta_ssid", NULL, &n) == ESP_OK;
-    if (stored) {
-        nvs_erase_key(h, "sta_ssid");
-        nvs_erase_key(h, "sta_pass");
-        nvs_commit(h);
-    }
-    nvs_close(h);
-    if (stored && nvs_open("nvs.net80211", NVS_READWRITE, &h) == ESP_OK) {
-        nvs_erase_all(h);
-        nvs_commit(h);
-        nvs_close(h);
-        printf("WIFI erased the stored home network (feature removed)\n");
-    }
-}
-
+/* NVS is up already (settings_init): the radio keeps its calibration there. */
 static esp_err_t wifi_start(void)
 {
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        nvs_flash_erase();
-        err = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(err);
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     s_ap_netif = esp_netif_create_default_wifi_ap();
     esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event, NULL);
     esp_event_handler_register(IP_EVENT, IP_EVENT_ASSIGNED_IP_TO_CLIENT, wifi_event, NULL);
-    forget_old_home_wifi();
     wifi_init_config_t init = WIFI_INIT_CONFIG_DEFAULT();
     init.nvs_enable = false;   /* the AP is configured on every boot: no flash writes for it */
     ESP_ERROR_CHECK(esp_wifi_init(&init));
@@ -768,17 +842,30 @@ esp_err_t stream_start(uint8_t *const *frames)
     /* Low priority on core 0: encoding a noisy picture takes longer than a
      * frame, so the encoder runs nonstop and must only get what the web
      * server, viewers and USB console leave (at 5 it starved the console). */
-    xTaskCreatePinnedToCore(encoder_task, "jpeg", 6144, NULL, 2, &s_encoder, 0);
+    if (xTaskCreatePinnedToCore(encoder_task, "jpeg", 6144, NULL, 2, &s_encoder, 0) != pdPASS) {
+        s_encoder = NULL;
+        return ESP_ERR_NO_MEM;
+    }
 
     ESP_ERROR_CHECK(wifi_start());
+    static const page_handler_t h_index = {index_get, "/"}, h_status = {status_get, "/status"},
+                                h_cmd = {cmd_get, "/cmd"}, h_c5 = {c5_get, "/c5"},
+                                h_snapshot = {snapshot_get, "/snapshot.jpg"}, h_bench = {bench_get, "/bench"},
+                                h_icon = {icon_get, "icon"};
+#define PAGE_URI(path, h) {.uri = path, .method = HTTP_GET, .handler = timed, .user_ctx = (void *)&h}
     static const httpd_uri_t page_uris[] = {
-        {.uri = "/", .method = HTTP_GET, .handler = index_get},
-        {.uri = "/status", .method = HTTP_GET, .handler = status_get},
-        {.uri = "/cmd", .method = HTTP_GET, .handler = cmd_get},
-        {.uri = "/c5", .method = HTTP_GET, .handler = c5_get},
-        {.uri = "/snapshot.jpg", .method = HTTP_GET, .handler = snapshot_get},
-        {.uri = "/bench", .method = HTTP_GET, .handler = bench_get},
+        PAGE_URI("/", h_index),
+        PAGE_URI("/status", h_status),
+        PAGE_URI("/cmd", h_cmd),
+        PAGE_URI("/c5", h_c5),
+        PAGE_URI("/snapshot.jpg", h_snapshot),
+        PAGE_URI("/bench", h_bench),
+        PAGE_URI("/icon.png", h_icon),
+        PAGE_URI("/favicon.ico", h_icon),
+        PAGE_URI("/apple-touch-icon.png", h_icon),
+        PAGE_URI("/apple-touch-icon-precomposed.png", h_icon),
     };
+#undef PAGE_URI
     static const httpd_uri_t stream_uris[] = {
         {.uri = "/stream", .method = HTTP_GET, .handler = stream_get},
     };

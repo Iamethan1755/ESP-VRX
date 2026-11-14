@@ -11,6 +11,7 @@
  * block (in_suc_eof) every CAPTURE_NODE_BYTES, matching one descriptor of a
  * circular list, so the EOF interrupt tells which node is complete. */
 #include "capture.h"
+#include "capture_nodes.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -49,6 +50,9 @@ static uint32_t s_fs_hz;
 static volatile uint32_t s_nodes;
 static volatile uint32_t s_generation;
 static uint32_t s_last_idx;
+static uint32_t s_last_eof_us;      /* time of the last end-of-node interrupt */
+static uint32_t s_node_us_q8;       /* time one node takes to fill, Q8 us */
+static bool s_have_eof;             /* an interrupt came since the start: s_last_eof_us is valid */
 static bool s_running;
 /* Start, stop and the console's tests come from two tasks (decoder,
  * console): one at a time. Recursive: the tests stop and restart. */
@@ -69,8 +73,12 @@ static bool IRAM_ATTR on_eof(gdma_channel_handle_t chan, gdma_event_data_t *ev, 
      * suc_eof, so a late interrupt from a stopped run is ignored. */
     if (idx >= NODES || !d->dw0.suc_eof) return false;
     d->dw0.suc_eof = 0;
-    uint32_t adv = (idx - s_last_idx) & (NODES - 1);
-    s_nodes += adv ? adv : NODES;
+    const uint32_t now = (uint32_t)esp_timer_get_time();
+    /* The first interrupt of a run has no time to compare with: the
+     * recording starts some time after the engines (see start_unlocked). */
+    s_nodes += capture_nodes_advance(idx, s_last_idx, NODES, s_have_eof ? now - s_last_eof_us : 0, s_node_us_q8);
+    s_last_eof_us = now;
+    s_have_eof = true;
     s_last_idx = idx;
     BaseType_t woken = pdFALSE;
     if (s_notify) vTaskNotifyGiveFromISR(s_notify, &woken);
@@ -162,6 +170,7 @@ esp_err_t capture_init(uint32_t fs_hz)
     if (!s_ctl) return ESP_ERR_NO_MEM;
     s_fs_hz = fs_hz;
     ESP_RETURN_ON_FALSE(160000000u % fs_hz == 0, ESP_ERR_INVALID_ARG, TAG, "rate must divide 160 MHz");
+    s_node_us_q8 = (uint32_t)((uint64_t)CAPTURE_NODE_BYTES * 256000000u / fs_hz);
 
     gdma_channel_alloc_config_t alloc = {0};
     ESP_RETURN_ON_ERROR(gdma_new_ahb_channel(&alloc, NULL, &s_dma), TAG, "no DMA channel");
@@ -207,6 +216,7 @@ static void start_engines(void)
         s_desc[k].next = &s_desc[(k + 1) % NODES];
     }
     s_last_idx = NODES - 1;
+    s_have_eof = false;
     s_nodes = 0;
     s_generation++;
     esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ZERO_INPUT, CAM_V_SYNC_IDX, false);

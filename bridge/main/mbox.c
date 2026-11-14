@@ -19,7 +19,7 @@ void mbox_init(mbox_t *m, uint8_t *const *frames, int readers)
     for (int i = 0; i < m->frames; i++) m->frame[i] = frames[i];
 }
 
-uint8_t *mbox_submit(mbox_t *m, uint8_t *fb, int w, int h, int fmt)
+uint8_t *mbox_submit(mbox_t *m, uint8_t *fb, int w, int h, int fmt, uint32_t tag)
 {
     const int f = index_of(m, fb);
     if (f < 0) return fb;
@@ -38,11 +38,12 @@ uint8_t *mbox_submit(mbox_t *m, uint8_t *fb, int w, int h, int fmt)
     m->ready_w = w;
     m->ready_h = h;
     m->ready_fmt = fmt;
+    m->ready_tag = tag;
     m->unread = (1u << m->readers) - 1;
     return m->frame[next];
 }
 
-uint8_t *mbox_take(mbox_t *m, int reader, int *w, int *h, int *fmt)
+uint8_t *mbox_take(mbox_t *m, int reader, int *w, int *h, int *fmt, uint32_t *tag)
 {
     const unsigned bit = 1u << reader;
     const int r = index_of(m, m->ready);
@@ -52,6 +53,7 @@ uint8_t *mbox_take(mbox_t *m, int reader, int *w, int *h, int *fmt)
     *w = m->ready_w;
     *h = m->ready_h;
     *fmt = m->ready_fmt;
+    if (tag) *tag = m->ready_tag;
     return m->ready;
 }
 

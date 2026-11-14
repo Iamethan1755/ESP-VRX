@@ -24,6 +24,8 @@ typedef struct {
     float drawn_line_us;      /* mean decoder time per line in drawn fields (a line lasts 63.6 us) */
     float skipped_line_us;    /* ... in fields that are not drawn */
     float fps;                /* JPEG frames per second */
+    float pipe_ms;            /* a frame's last line decoded -> its JPEG ready, mean of the last second */
+    float pipe_max_ms;        /* ... the longest of the last second */
     uint32_t jpeg_bytes;
     uint32_t jpeg_frames;
     int clients;              /* open video streams */
@@ -37,11 +39,17 @@ typedef struct {
 /* Shared commands, applied by the decoder task:
  *   t  next source (C5 input, NTSC test pattern, PAL test pattern)
  *   c  levels: auto contrast / standard sync-referenced levels
+ *   f  despeckle: median / [1 2 1] smoothing
+ *   d  denoise on / off
  *   m  colour on / off
  *   j l  picture left / right (0.2 us)
  *   i k  picture up / down (1 line)
- * Returns false for anything else. */
+ *   z  all of the above (but the source) back to the firmware's defaults
+ * The picture settings are stored and come back at the next start
+ * (settings.h). Returns false for anything else. */
 bool bridge_command(char c);
+/* The firmware's version (bridge/version.txt). */
+const char *bridge_version(void);
 void bridge_get_status(bridge_status_t *out);
 /* Line and field sync locked, as of the decoder's last report (0.5 s). */
 bool bridge_locked(void);

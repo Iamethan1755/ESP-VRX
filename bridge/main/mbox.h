@@ -26,17 +26,21 @@ typedef struct {
     int frames, readers;
     uint8_t *ready;                  /* the published frame, NULL when none */
     int ready_w, ready_h, ready_fmt;
+    uint32_t ready_tag;              /* the submitter's mark for that frame (its time) */
     unsigned unread;                 /* readers (bit per reader) that have not taken `ready` */
 } mbox_t;
 
 /* `frames`: 2 + `readers` buffers, [0] the one the decoder renders into first. */
 void mbox_init(mbox_t *m, uint8_t *const *frames, int readers);
 /* Decoder: publishes the finished frame `fb` and returns the buffer to
- * render the next frame into. Before mbox_init it returns `fb` (the frame
- * is dropped: the decoder keeps its buffer). */
-uint8_t *mbox_submit(mbox_t *m, uint8_t *fb, int w, int h, int fmt);
+ * render the next frame into. `tag` travels with the frame to its readers
+ * (the firmware passes the time the frame was finished, for the delay
+ * statistics). Before mbox_init it returns `fb` (the frame is dropped: the
+ * decoder keeps its buffer). */
+uint8_t *mbox_submit(mbox_t *m, uint8_t *fb, int w, int h, int fmt, uint32_t tag);
 /* Reader `reader` (0 .. readers - 1): the published frame if this reader
  * has not had it yet, else NULL. Hand it back with mbox_release(). A frame
- * is w x h pixels in format fmt (video_fmt_t: gray or colour planes). */
-uint8_t *mbox_take(mbox_t *m, int reader, int *w, int *h, int *fmt);
+ * is w x h pixels in format fmt (video_fmt_t: gray or colour planes); `tag`
+ * (may be NULL) gets the submitter's mark. */
+uint8_t *mbox_take(mbox_t *m, int reader, int *w, int *h, int *fmt, uint32_t *tag);
 void mbox_release(mbox_t *m, const uint8_t *fb);

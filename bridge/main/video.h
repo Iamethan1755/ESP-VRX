@@ -67,7 +67,8 @@ typedef struct {
     float white_level;        /* output mapping: code shown as white */
     uint32_t fields;
     uint32_t lines;
-    uint32_t overruns;        /* decoder fell a ring behind and resynchronised */
+    uint32_t overruns;        /* decoder fell a ring behind while locked: picture lines were lost */
+    uint32_t catchups;        /* ... while searching for sync (no picture to lose) */
     uint32_t lock_losses;
     int h_offset_tenths_us;   /* user picture shift, 0.1 us steps */
     int v_offset_lines;       /* user picture shift, lines */
@@ -203,7 +204,7 @@ typedef struct {
     uint32_t drawn_us, drawn_lines;     /* time spent on lines of drawn fields since the last read (firmware only) */
     uint32_t skipped_us, skipped_lines; /* ... and of fields that are not drawn */
     int lines_per_field;
-    uint32_t fields, lines, overruns, lock_losses;
+    uint32_t fields, lines, overruns, catchups, lock_losses;
     int h_offset_tenths;
 } video_t;
 

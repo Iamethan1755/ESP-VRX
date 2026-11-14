@@ -15,6 +15,7 @@
 #include "capture.h"
 #include "console.h"
 #include "display.h"
+#include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
@@ -22,6 +23,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "settings.h"
 #include "stream.h"
 #include "testpattern.h"
 #include "video.h"
@@ -59,6 +61,8 @@ const char *bridge_source_name(bridge_source_t s)
     return s == SOURCE_LIVE ? "c5" : s == SOURCE_TEST_NTSC ? "test-ntsc" : "test-pal";
 }
 
+const char *bridge_version(void) { return esp_app_get_description()->version; }
+
 const char *bridge_reset_reason(void)
 {
     switch (esp_reset_reason()) {
@@ -91,7 +95,7 @@ static uint8_t *on_field(uint8_t *done, int w, int h, video_fmt_t fmt, bool rend
     s_last_field = now;
     uint8_t *next = done;
     if (rendered && now - s_last_submit >= interval) {
-        next = stream_submit(done, w, h, fmt);
+        next = stream_submit(done, w, h, fmt, (uint32_t)now);
         s_last_submit = now;
     }
     *render_next = now + field_us - s_last_submit >= interval;
@@ -119,10 +123,45 @@ static void set_source(bridge_source_t src)
     ESP_LOGI(TAG, "source: %s", bridge_source_name(src));
 }
 
+/* The picture settings as they are now / as stored (settings.h). */
+static void settings_now(settings_t *s)
+{
+    s->h_tenths = (int8_t)s_video.h_offset_tenths;
+    s->v_lines = (int8_t)s_video.v_offset;
+    s->levels = (uint8_t)s_video.levels;
+    s->filter = (uint8_t)s_video.filter;
+    s->colour = s_video.colour;
+    s->denoise = stream_denoise();
+}
+
+static void settings_apply(const settings_t *s)
+{
+    video_shift_h(&s_video, s->h_tenths - s_video.h_offset_tenths);
+    video_shift_v(&s_video, s->v_lines - s_video.v_offset);
+    video_set_levels(&s_video, (video_levels_t)s->levels);
+    video_set_filter(&s_video, (video_filter_t)s->filter);
+    video_set_colour(&s_video, s->colour);
+    stream_set_denoise(s->denoise);
+}
+
+static void settings_defaults(settings_t *s)
+{
+    *s = (settings_t){.levels = VIDEO_LEVELS_AUTO, .filter = VIDEO_FILTER_MEDIAN, .denoise = 1};
+#ifdef CONFIG_BRIDGE_COLOUR
+    s->colour = 1;
+#endif
+}
+
 static void apply_command(char c)
 {
+    settings_t s;
     switch (c) {
-    case 't': set_source((bridge_source_t)((s_source + 1) % SOURCE_COUNT)); break;
+    case 't': set_source((bridge_source_t)((s_source + 1) % SOURCE_COUNT)); return;
+    case 'z':
+        settings_defaults(&s);
+        settings_apply(&s);
+        settings_erase();
+        return;
     case 'c':
         video_set_levels(&s_video, s_video.levels == VIDEO_LEVELS_AUTO ? VIDEO_LEVELS_SYNC : VIDEO_LEVELS_AUTO);
         break;
@@ -135,13 +174,15 @@ static void apply_command(char c)
         break;
     case 'd': stream_set_denoise(!stream_denoise()); break;
     case 'm': video_set_colour(&s_video, !s_video.colour); break;
-    default: break;
+    default: return;
     }
+    settings_now(&s);
+    settings_save(&s);   /* written 2 s after the last change, by its own task */
 }
 
 bool bridge_command(char c)
 {
-    if (!c || !strchr("tcjlikfdm", c)) return false;
+    if (!c || !strchr("tcjlikfdmz", c)) return false;
     return xQueueSend(s_cmds, &c, 0) == pdTRUE;
 }
 
@@ -155,7 +196,8 @@ static void decode_task(void *arg)
         char c;
         while (xQueueReceive(s_cmds, &c, 0) == pdTRUE) {
             apply_command(c);
-            window_wp = s_source == SOURCE_LIVE ? capture_write_pos() : 0;
+            /* A source change starts the positions anew: the rate window too. */
+            window_wp = s_source == SOURCE_LIVE ? capture_write_pos() : s_tp_ready ? s_tp.pos : 0;
         }
         uint32_t wp = 0;
         if (s_source == SOURCE_LIVE) {
@@ -288,6 +330,7 @@ void bridge_get_status(bridge_status_t *out)
     out->source = s_source;
     out->capture_ok = s_source != SOURCE_LIVE || capture_running();
     stream_stats(&out->fps, &out->jpeg_bytes, &out->jpeg_frames, &out->clients);
+    stream_latency(&out->pipe_ms, &out->pipe_max_ms);
     out->stations = stream_wifi_stations();
     out->c5_keys = c5link_sent();
     out->heap_internal = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
@@ -301,23 +344,25 @@ int bridge_status_json(char *buf, size_t len)
     bridge_get_status(&s);
     const video_stats_t *v = &s.video;
     int n = snprintf(buf, len,
-        "{\"source\":\"%s\",\"capture_ok\":%s,\"h_locked\":%s,\"v_locked\":%s,\"std\":\"%s\","
+        "{\"version\":\"%s\",\"source\":\"%s\",\"capture_ok\":%s,\"h_locked\":%s,\"v_locked\":%s,\"std\":\"%s\","
         "\"lines_per_field\":%d,\"line_us\":%.3f,\"sync\":%.1f,\"blank\":%.1f,\"black\":%.1f,\"white\":%.1f,"
         "\"levels\":\"%s\",\"filter\":\"%s\",\"denoise\":%s,\"colour\":%s,\"colour_shown\":%s,\"burst\":%.2f,"
         "\"colour_noisy\":%s,\"burst_noise\":%.1f,\"colour_sat\":%.2f,\"slips\":%lu,\"clock_ppm\":%.2f,"
-        "\"fields\":%lu,\"overruns\":%lu,\"lock_losses\":%lu,\"h_offset_us\":%.1f,"
-        "\"v_offset\":%d,\"msps\":%.2f,\"load\":%.2f,\"fps\":%.1f,\"jpeg_bytes\":%lu,\"frames\":%lu,"
+        "\"fields\":%lu,\"overruns\":%lu,\"catchups\":%lu,\"lock_losses\":%lu,\"h_offset_us\":%.1f,"
+        "\"v_offset\":%d,\"msps\":%.2f,\"load\":%.2f,\"fps\":%.1f,\"pipe_ms\":%.1f,\"pipe_max_ms\":%.1f,"
+        "\"jpeg_bytes\":%lu,\"frames\":%lu,"
         "\"clients\":%d,\"stations\":%d,\"c5_keys\":%lu,\"c5_channel\":%d,\"heap_int\":%lu,\"heap_psram\":%lu,\"uptime\":%lu,"
         "\"reset\":\"%s\"}",
-        bridge_source_name(s.source), s.capture_ok ? "true" : "false", v->h_locked ? "true" : "false",
+        bridge_version(), bridge_source_name(s.source), s.capture_ok ? "true" : "false", v->h_locked ? "true" : "false",
         v->v_locked ? "true" : "false", v->std == VIDEO_STD_PAL ? "PAL" : "NTSC", v->lines_per_field, v->line_us,
         v->sync_level, v->blank_level, v->black_level, v->white_level,
         v->levels == VIDEO_LEVELS_AUTO ? "auto" : "std", v->filter == VIDEO_FILTER_MEDIAN ? "median" : "smooth",
         stream_denoise() ? "true" : "false", v->colour ? "true" : "false", v->colour_shown ? "true" : "false",
         v->burst_level, v->colour_noisy ? "true" : "false", v->burst_noise_deg, v->colour_sat,
         (unsigned long)v->slips, s.clock_ppm, (unsigned long)v->fields, (unsigned long)v->overruns,
-        (unsigned long)v->lock_losses, v->h_offset_tenths_us / 10.0, v->v_offset_lines, s.sample_msps,
-        s.decode_load, s.fps, (unsigned long)s.jpeg_bytes, (unsigned long)s.jpeg_frames, s.clients, s.stations, (unsigned long)s.c5_keys, c5link_channel(),
+        (unsigned long)v->catchups, (unsigned long)v->lock_losses, v->h_offset_tenths_us / 10.0, v->v_offset_lines,
+        s.sample_msps, s.decode_load, s.fps, s.pipe_ms, s.pipe_max_ms, (unsigned long)s.jpeg_bytes,
+        (unsigned long)s.jpeg_frames, s.clients, s.stations, (unsigned long)s.c5_keys, c5link_channel(),
         (unsigned long)s.heap_internal, (unsigned long)s.heap_psram, (unsigned long)s.uptime_s,
         bridge_reset_reason());
     return n < (int)len ? n : (int)len - 1;
@@ -371,6 +416,8 @@ void app_main(void)
 {
     s_cmds = xQueueCreate(16, sizeof(char));   /* before the console: its keys land here */
     console_start();
+    ESP_LOGI(TAG, "ESP-VRX %s", bridge_version());
+    ESP_ERROR_CHECK(settings_init());   /* NVS: the stored picture settings, the radio's calibration */
     if (!heap_caps_get_total_size(MALLOC_CAP_SPIRAM))
         ESP_LOGE(TAG, "no PSRAM found: frames use internal RAM, Wi-Fi may run short");
     bool frames_ok = true;
@@ -381,9 +428,6 @@ void app_main(void)
     ESP_ERROR_CHECK(s_cmds && frames_ok ? ESP_OK : ESP_ERR_NO_MEM);
     ESP_ERROR_CHECK(capture_init(s_fs_hz));
     video_init(&s_video, capture_ring(), CAPTURE_RING_BYTES, s_fs_hz, s_fb[0], on_field, NULL);
-#ifdef CONFIG_BRIDGE_COLOUR
-    video_set_colour(&s_video, true);
-#endif
     if (c5link_init() != ESP_OK) ESP_LOGE(TAG, "receiver key link unavailable");
 #ifdef CONFIG_BRIDGE_SPI_DISPLAY
     /* Before Wi-Fi takes the internal RAM the screen's DMA strips need. The
@@ -391,6 +435,12 @@ void app_main(void)
     if (display_start() != ESP_OK) ESP_LOGE(TAG, "SPI screen unavailable");
 #endif
     ESP_ERROR_CHECK(stream_start(s_fb));
+    /* The picture as it was left (after the stream: the denoise is its). */
+    settings_t settings;
+    settings_defaults(&settings);
+    const bool stored = settings_load(&settings);
+    settings_apply(&settings);
+    ESP_LOGI(TAG, "picture settings: %s", stored ? "as stored" : "defaults");
 #ifdef CONFIG_BRIDGE_TEST_PATTERN_AT_BOOT
     set_source(SOURCE_TEST_NTSC);
 #else

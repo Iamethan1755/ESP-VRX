@@ -599,7 +599,8 @@ static VIDEO_HOT void render_line(video_t *v, int row)
         if (median && !stats) {
             /* Median of three samples two apart: an FM click (1-2 samples)
              * reaches at most one of them, so it never wins. Half the cost
-             * of a 5-tap median (board: overruns at 20 MS/s with it). */
+             * of a median of five neighbours (board: overruns at 20 MS/s
+             * with that one). */
             for (int x = 0; x < VIDEO_W; x++, pos += step) {
                 const uint8_t *p = q + (pos >> 8);
                 line[x] = lut[video_med3(p[-2], p[0], p[2]) << 2];
@@ -854,15 +855,18 @@ VIDEO_HOT void video_process(video_t *v, uint32_t write_pos)
         if (start - 4 < v->wr - (int64_t)v->ring_size + v->c_margin) {
             /* A ring behind the writer: those samples are being overwritten.
              * Locked, skip whole lines and keep the lock and the line count
-             * (the picture misses those rows once); unlocked, search anew. */
-            v->overruns++;
+             * (the picture misses those rows once: an overrun); unlocked,
+             * search anew further on (a catch-up: there was no picture to
+             * lose, as during the receiver's channel scan). */
             const int64_t target = (v->wr - (int64_t)v->ring_size / 4) << 8;
             if (v->h_locked && v->period > 0) {
+                v->overruns++;
                 const int64_t k = (target - v->t_edge + v->period - 1) / v->period;
                 v->t_edge += k * v->period;
                 v->line_in_field += (int)k;
                 v->lines += (uint32_t)k;
             } else {
+                v->catchups++;
                 restart_tracking(v, target >> 8);
             }
             continue;
@@ -901,6 +905,7 @@ void video_get_stats(const video_t *v, video_stats_t *o)
     o->fields = v->fields;
     o->lines = v->lines;
     o->overruns = v->overruns;
+    o->catchups = v->catchups;
     o->lock_losses = v->lock_losses;
     o->h_offset_tenths_us = v->h_offset_tenths;
     o->v_offset_lines = v->v_offset;

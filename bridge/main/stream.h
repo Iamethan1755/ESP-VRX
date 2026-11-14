@@ -23,8 +23,9 @@ esp_err_t stream_start(uint8_t *const *frames);
 /* Hands a finished frame (gray or colour planes) to the JPEG encoder (and the
  * screen) without waiting and returns the buffer to render the next frame
  * into. The newest frame wins: one no reader has taken yet is dropped (its
- * buffer comes back). */
-uint8_t *stream_submit(uint8_t *fb, int w, int h, video_fmt_t fmt);
+ * buffer comes back). `t_us`: when the frame was finished (esp_timer, low 32
+ * bits), for stream_latency(). */
+uint8_t *stream_submit(uint8_t *fb, int w, int h, video_fmt_t fmt, uint32_t t_us);
 #ifdef CONFIG_BRIDGE_SPI_DISPLAY
 /* The screen's side of the frame mailbox, for the display task: after
  * stream_display_attach() every new frame notifies the calling task;
@@ -39,6 +40,11 @@ void stream_stats(float *fps, uint32_t *jpeg_bytes, uint32_t *frames, int *clien
 /* The encoder's time per frame (ms, last second): denoise, colour YCbYCr
  * bands, JPEG itself (wall time on core 0, so with what preempts it). */
 void stream_timing(float *nr_ms, float *conv_ms, float *jpeg_ms);
+/* From a frame's last decoded line to its JPEG being ready for the viewers
+ * (ms, mean and longest of the last second): the bridge's own share of the
+ * picture delay, without the field itself (16.7 / 20 ms), Wi-Fi and the
+ * browser. */
+void stream_latency(float *mean_ms, float *max_ms);
 /* Temporal denoise before JPEG (on by default). */
 void stream_set_denoise(bool on);
 bool stream_denoise(void);

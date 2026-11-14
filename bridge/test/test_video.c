@@ -2,12 +2,14 @@
 /* Host test: decode the synthetic NTSC/PAL source with the bridge's video
  * decoder and check lock, standard, field rate, alignment and levels;
  * NTSC colour bars (hue, saturation) also through noise, 5 bits and clock
- * slips; also the frame mailbox between the decoder and its readers.
+ * slips; also the frame mailbox between the decoder and its readers and
+ * the capture ring's node counting.
  * Build and run: python bridge/test/run_host_tests.py */
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#include "capture_nodes.h"
 #include "denoise.h"
 #include "mbox.h"
 #include "testpattern.h"
@@ -290,6 +292,16 @@ static void scenario_full(const char *name, uint32_t fs, bool pal, int noise, in
     CHECK(!st.h_locked, "%s: still locked without signal", name);
     CHECK(st.fields - f0 >= 5, "%s: only %u fields without signal", name, st.fields - f0);
 
+    /* Starved while searching (no signal): the decoder catches up, but that
+     * is no overrun: no picture was lost. */
+    const uint32_t over0 = st.overruns, catch0 = st.catchups;
+    tp.pos += 2 * RING;   /* the ring keeps its zeros */
+    run(&tp, &v, 0.05, false);
+    video_get_stats(&v, &st);
+    printf("  starved without signal: overruns +%u catch-ups +%u\n", st.overruns - over0, st.catchups - catch0);
+    CHECK(st.overruns == over0, "%s: an overrun counted without a picture", name);
+    CHECK(st.catchups > catch0, "%s: catching up without signal not counted", name);
+
     /* Signal back: relock within half a second. */
     run(&tp, &v, 0.5, true);
     video_get_stats(&v, &st);
@@ -522,6 +534,33 @@ static void check_med3(void)
     CHECK(bad == 0, "video_med3 is not a median");
 }
 
+/* The capture ring's node count between two end-of-node interrupts
+ * (capture_nodes.h): 32 nodes of 102.4 us (2048 samples at 20 MS/s). The
+ * index alone cannot tell 1 node from 33; the time between the interrupts
+ * can, also when the interrupt came late or early by a few nodes. */
+static void check_capture_nodes(void)
+{
+    const uint32_t nodes = 32, node_q8 = 26214;
+    int bad = 0, cases = 0;
+    for (uint32_t last = 0; last < nodes; last += 5) {
+        for (uint32_t true_adv = 1; true_adv <= 40 * nodes; true_adv += (true_adv < 70 ? 1 : 37)) {
+            const uint32_t idx = (last + true_adv) & (nodes - 1);
+            /* the interrupt's own delay moves the measured time by up to +-8 nodes */
+            for (int jitter = -8; jitter <= 8; jitter += 4) {
+                const int64_t us = ((int64_t)true_adv * node_q8 + jitter * (int64_t)node_q8) / 256;
+                const uint32_t got = capture_nodes_advance(idx, last, nodes, (uint32_t)(us < 0 ? 0 : us), node_q8);
+                bad += got != true_adv;
+                cases++;
+            }
+        }
+    }
+    /* Without a time (the first interrupt of a run): the index alone. */
+    bad += capture_nodes_advance(0, nodes - 1, nodes, 0, node_q8) != 1;
+    bad += capture_nodes_advance(5, 5, nodes, 0, node_q8) != nodes;
+    printf("capture nodes: %d wrong of %d\n", bad, cases + 2);
+    CHECK(bad == 0, "capture node counting: %d wrong", bad);
+}
+
 /* The original encoder-only mailbox (stream.c before the SPI screen), for
  * comparison: a frame no one took comes back, else a free buffer. */
 typedef struct { uint8_t *ready, *free_[2]; int nfree; } old_mbox_t;
@@ -576,7 +615,7 @@ static void check_mailbox(void)
             const unsigned op = rng >> 16 & 7;
             if (op < 3) {
                 set_stamp(dec, ++seq);
-                uint8_t *next = mbox_submit(&m, dec, VIDEO_W, 240, VIDEO_FMT_GRAY);
+                uint8_t *next = mbox_submit(&m, dec, VIDEO_W, 240, VIDEO_FMT_GRAY, seq * 7u);
                 bad += next == dec || next == m.ready;
                 for (int r = 0; r < readers; r++) bad += next == held[r];
                 dec = next;
@@ -603,10 +642,12 @@ static void check_mailbox(void)
                 continue;
             }
             int w = 0, h = 0, fmt = 0;
-            held[r] = mbox_take(&m, r, &w, &h, &fmt);
+            uint32_t tag = 0;
+            held[r] = mbox_take(&m, r, &w, &h, &fmt, &tag);
             if (held[r]) {
                 held_stamp[r] = stamp(held[r]);
                 bad += held_stamp[r] != seq || seq == had[r] || w != VIDEO_W || h != 240 || fmt != VIDEO_FMT_GRAY;
+                bad += tag != seq * 7u;   /* the frame's own tag, not a later one's */
                 had[r] = seq;
                 reads++;
             } else {
@@ -629,6 +670,7 @@ int main(void)
 {
     check_med3();
     check_mailbox();
+    check_capture_nodes();
     scenario("ntsc_10mhz", 10000000, false, 0);
     scenario("pal_10mhz", 10000000, true, 0);
     scenario("ntsc_20mhz", 20000000, false, 0);
