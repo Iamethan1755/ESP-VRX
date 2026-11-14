@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
-"""Build and run the bridge's host tests with Zig's C compiler (pip install ziglang).
+"""Build and run the bridge's host tests with Zig's C compiler (pip install ziglang),
+then check that the firmware, the page and the mock agree (tools/check_consistency.py).
 
 Usage: python bridge/test/run_host_tests.py
 Writes test_out_*.pgm / .ppm frames and converts them to PNG next to this script.
@@ -38,14 +39,16 @@ def main() -> int:
     cmd = [sys.executable, "-m", "ziglang", "cc", "-O2", "-std=c11", "-Wall", "-Wextra", "-Werror",
            f"-I{MAIN}", str(HERE / "test_video.c"), str(MAIN / "video.c"), str(MAIN / "testpattern.c"), str(MAIN / "denoise.c"),
            str(MAIN / "mbox.c"),
-           "-o", str(exe)]
+           "-lm", "-o", str(exe)]
     if subprocess.call(cmd) != 0:
         return 1
     rc = subprocess.call([str(exe)], cwd=HERE)
     for pgm in sorted([*HERE.glob("test_out_*.pgm"), *HERE.glob("test_out_*.ppm")]):
         pgm_to_png(pgm)
         pgm.unlink()
-    return rc
+    sys.stdout.flush()
+    consistent = subprocess.call([sys.executable, str(HERE.parent.parent / "tools" / "check_consistency.py")])
+    return rc or consistent
 
 
 if __name__ == "__main__":

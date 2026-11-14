@@ -5,7 +5,7 @@
 <rect x="60" y="130" width="300" height="460" rx="14" fill="#F3F6FB" stroke="#3B4A5F" stroke-width="2"/>
 <rect x="1040" y="130" width="300" height="460" rx="14" fill="#F3F6FB" stroke="#3B4A5F" stroke-width="2"/>
 <text x="82" y="166" font-size="21" font-weight="700" fill="#1D2733" text-anchor="start">XIAO ESP32-C5</text>
-<text x="82" y="188" font-size="13" font-weight="normal" fill="#8A94A3" text-anchor="start">receiver: C5VRX-5 (branch wifi-bridge)</text>
+<text x="82" y="188" font-size="13" font-weight="normal" fill="#8A94A3" text-anchor="start">receiver: C5VRX-5 + key reader (receiver/)</text>
 <text x="1062" y="166" font-size="21" font-weight="700" fill="#1D2733" text-anchor="start">XIAO ESP32-S3</text>
 <text x="1062" y="188" font-size="13" font-weight="normal" fill="#8A94A3" text-anchor="start">Wi-Fi bridge: camera port + JPEG + AP</text>
 <path d="M110 130V106M101 94L110 106L119 94" stroke="#1D2733" stroke-width="2" fill="none"/>

@@ -1,0 +1,8 @@
+# Python packages for the PC tools and the host tests:
+#   python -m venv .venv
+#   .venv\Scripts\pip install -r tools\requirements.txt      (Linux/macOS: .venv/bin/pip)
+pyserial      # bridge_tool.py: the bridge's USB console
+numpy         # bridge_tool.py raw plots, chroma_study.py
+matplotlib    # bridge_tool.py raw plots, chroma_study.py
+pillow        # mock_bridge.py, make_icon.py
+ziglang       # a C compiler for bridge/test (run_host_tests.py, replay.py)

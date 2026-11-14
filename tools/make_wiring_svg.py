@@ -124,7 +124,7 @@ BOX_Y, BOX_H = 130, 460
 add(f'<rect x="60" y="{BOX_Y}" width="300" height="{BOX_H}" rx="14" fill="#F3F6FB" stroke="#3B4A5F" stroke-width="2"/>')
 add(f'<rect x="1040" y="{BOX_Y}" width="300" height="{BOX_H}" rx="14" fill="#F3F6FB" stroke="#3B4A5F" stroke-width="2"/>')
 text(82, BOX_Y + 36, "XIAO ESP32-C5", 21, "700")
-text(82, BOX_Y + 58, "receiver: C5VRX-5 (branch wifi-bridge)", 13, fill=MUTED)
+text(82, BOX_Y + 58, "receiver: C5VRX-5 + key reader (receiver/)", 13, fill=MUTED)
 text(1062, BOX_Y + 36, "XIAO ESP32-S3", 21, "700")
 text(1062, BOX_Y + 58, "Wi-Fi bridge: camera port + JPEG + AP", 13, fill=MUTED)
 antenna(110, BOX_Y, "5.8 GHz antenna (U.FL)", "start")

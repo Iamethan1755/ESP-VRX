@@ -22,7 +22,7 @@ def main() -> int:
     filt = sys.argv[3] if len(sys.argv) > 3 else "median"
     exe = HERE / ("replay.exe" if sys.platform == "win32" else "replay")
     cmd = [sys.executable, "-m", "ziglang", "cc", "-O2", "-std=c11", "-Wall", "-Wextra", "-Werror",
-           f"-I{MAIN}", str(HERE / "replay.c"), str(MAIN / "video.c"), "-o", str(exe)]
+           f"-I{MAIN}", str(HERE / "replay.c"), str(MAIN / "video.c"), "-lm", "-o", str(exe)]
     if subprocess.call(cmd) != 0:
         return 1
     out = rec.parent / "replay"

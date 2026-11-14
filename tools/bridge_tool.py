@@ -6,7 +6,9 @@
   python tools/bridge_tool.py rawlong           ~6 contiguous fields (2 MiB) -> captures/rawlong_*.bin
   python tools/bridge_tool.py frame             current JPEG -> captures/frame_*.jpg
   python tools/bridge_tool.py selftest          loopback test (NOTHING connected to D0..D5!)
-  python tools/bridge_tool.py keys tc           send console keys (t source, c levels, j/l/i/k shift)
+  python tools/bridge_tool.py keys tc           send console keys and print the answers (t source, c levels,
+                                                j/l/i/k shift, u key wire check, w Wi-Fi and viewers,
+                                                "#00" tune the C5 to Raceband 1, Cs receiver scan; h lists all)
   python tools/bridge_tool.py live              live video over USB at http://127.0.0.1:8090/ (--http PORT)
   python tools/bridge_tool.py ports             list serial ports
 
@@ -149,7 +151,7 @@ LIVE_PAGE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bridge USB Live</title>
+<title>ESP-VRX over USB</title>
 <style>
   :root { --bg:#0b0d10; --panel:#161a20; --text:#e8eaed; --muted:#8b93a0; --ok:#3fb950; --btn:#232a33; }
   body { margin:0; background:var(--bg); color:var(--text); font:14px/1.4 system-ui, Segoe UI, sans-serif; }
@@ -167,25 +169,29 @@ LIVE_PAGE = """<!doctype html>
   <div class="row">
     <button id="f" title="Median filter against the FM speckles">Despeckle</button>
     <button id="d" title="Average still areas over frames">Denoise</button>
+    <button id="m" title="Colour from the NTSC colour burst, or gray">Colour</button>
   </div>
   <div id="info">waiting for the bridge...</div>
 </main>
 <script>
   const info = document.getElementById('info');
-  const bf = document.getElementById('f'), bd = document.getElementById('d');
-  [bf, bd].forEach(b => b.onclick = () => fetch('/key?k=' + b.id, { method: 'POST' }));
+  const bf = document.getElementById('f'), bd = document.getElementById('d'), bm = document.getElementById('m');
+  [bf, bd, bm].forEach(b => b.onclick = () => fetch('/key?k=' + b.id, { method: 'POST' }));
   setInterval(() => fetch('/info', { cache: 'no-store' }).then(r => r.json()).then(s => {
     info.textContent = s.text;
     bf.textContent = s.filter === 'median' ? 'Despeckle on' : 'Despeckle off';
     bf.classList.toggle('on', s.filter === 'median');
     bd.textContent = s.denoise === '1' ? 'Denoise on' : 'Denoise off';
     bd.classList.toggle('on', s.denoise === '1');
+    const colour = !!s.colour && s.colour !== 'off';
+    bm.textContent = colour ? 'Colour on' : 'Colour off';
+    bm.classList.toggle('on', colour);
   }).catch(() => { info.textContent = 'tool not running'; }), 1000);
 </script>
 </body>
 </html>
 """
-LIVE_KEYS = b"fd"   # keys the live page may send
+LIVE_KEYS = b"fdm"   # keys the live page may send
 
 
 def live(s: serial.Serial, http_port: int) -> None:
@@ -263,7 +269,8 @@ def live(s: serial.Serial, http_port: int) -> None:
                         f"lock h={kv.get('h_lock', '?')} v={kv.get('v_lock', '?')} {kv.get('std', '')} "
                         f"{kv.get('lines/field', '?')} lines | Wi-Fi stream {kv.get('fps', '?')} fps | "
                         f"overruns {kv.get('overruns', '?')} | load {kv.get('load', '?')}")
-                body = json.dumps({"text": text, "filter": kv.get("filter"), "denoise": kv.get("denoise")})
+                body = json.dumps({"text": text, "filter": kv.get("filter"), "denoise": kv.get("denoise"),
+                                   "colour": kv.get("colour")})
                 self.reply(body.encode(), "application/json")
             elif self.path.startswith("/stream"):
                 self.send_response(200)
@@ -405,9 +412,21 @@ def main() -> int:
     elif a.command == "live":
         live(s, a.http)
     elif a.command == "keys":
+        # Every line the bridge answers with (COMMAND ..., LINK ..., C5 <- ...,
+        # WIFI ...), until it has been quiet for a moment.
+        s.reset_input_buffer()
         for ch in a.keys:
             s.write(ch.encode())
-            print("\n".join(l for l in read_until(s, lambda l: l.startswith("COMMAND"), 2) if l.startswith("COMMAND")))
+            time.sleep(0.05)
+        answered = False
+        while True:
+            lines = [l for l in read_until(s, lambda l: False, 1.5 if answered else 3.0) if l]
+            if not lines:
+                break
+            print("\n".join(lines))
+            answered = True
+        if not answered:
+            print("no answer")
     s.close()
     return 0
 
